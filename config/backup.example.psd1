@@ -6,6 +6,10 @@
     ReportRoot = 'C:\BackupGuard\reports'
     WindowStart = '02:00'
     WindowEnd = '06:00'
+    TaskName = 'OfflineBackupGuard-Nightly'
+    ScheduleTime = '02:30'
+    TaskUser = 'REPLACE_WITH_APPROVED_WINDOWS_ACCOUNT'
+    TaskLogonType = 'Interactive'
     Canary = @{
         Path = 'C:\BackupGuard\canary.txt'
         ExpectedText = 'Backup integrity sentinel. Do not edit.'

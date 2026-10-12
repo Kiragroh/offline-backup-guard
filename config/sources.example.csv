@@ -1,3 +1,3 @@
-Enabled;Name;SourcePath;DestinationSubfolder;CanaryPath;CanarySha256;CanaryRequired;MirrorDeletes;MaxDeleteCount
-false;Example documents;C:\ExampleData\Documents;documents;C:\ExampleData\Documents\BACKUP-CANARY.txt;REPLACE_WITH_TRUSTED_SHA256;true;true;1000
-false;Example shared files;\\fileserver.example.invalid\research;research;;;false;false;1000
+Enabled;Name;SourcePath;DestinationSubfolder;CanaryPath;CanarySha256;CanaryRequired;MirrorDeletes;MaxDeleteCount;PreviousVersions;DeletedRetentionDays
+false;Example documents;C:\ExampleData\Documents;documents;C:\ExampleData\Documents\BACKUP-CANARY.txt;REPLACE_WITH_TRUSTED_SHA256;true;true;1000;1;30
+false;Example shared files;\\fileserver.example.invalid\research;research;;;false;false;1000;1;30

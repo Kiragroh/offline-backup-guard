@@ -154,6 +154,8 @@ function Import-BackupSourceList {
             CanaryRequired = ConvertTo-BackupBoolean -Value $row.CanaryRequired -Default (-not [string]::IsNullOrWhiteSpace([string]$row.CanarySha256))
             MirrorDeletes = ConvertTo-BackupBoolean -Value $row.MirrorDeletes -Default $true
             MaxDeleteCount = ConvertTo-BackupInt -Value $row.MaxDeleteCount -Default 0
+            PreviousVersions = if ([string]::IsNullOrWhiteSpace([string]$row.PreviousVersions)) { $null } else { [int]$row.PreviousVersions }
+            DeletedRetentionDays = if ([string]::IsNullOrWhiteSpace([string]$row.DeletedRetentionDays)) { $null } else { [int]$row.DeletedRetentionDays }
         }
     }
 
@@ -659,7 +661,11 @@ function Save-LastResortMirrorChanges {
 
         [string] $LogPath = "",
 
-        [string] $SourceName = ""
+        [string] $SourceName = "",
+
+        [bool] $ArchiveReplacements = $true,
+
+        [bool] $ArchiveDeletions = $true
     )
 
     if (-not (Test-Path -LiteralPath $DestinationPath -PathType Container)) {
@@ -707,6 +713,7 @@ function Save-LastResortMirrorChanges {
 
             $isExtraFile = ($line -like "*`*EXTRA*")
             if ($isExtraFile) {
+                if (-not $ArchiveDeletions) { continue }
                 $relativePath = Get-BackupRelativePathFromRobocopyPreviewLine -Line $line -RootPath $DestinationPath
                 if ([string]::IsNullOrWhiteSpace($relativePath)) {
                     if ($isFileCandidate -and $normalizedLine.IndexOf($DestinationPath.Replace("/", "\"), [StringComparison]::OrdinalIgnoreCase) -ge 0) {
@@ -743,6 +750,7 @@ function Save-LastResortMirrorChanges {
                 continue
             }
 
+            if (-not $ArchiveReplacements) { continue }
             $relativePath = Get-BackupRelativePathFromRobocopyPreviewLine -Line $line -RootPath $SourcePath
             if ([string]::IsNullOrWhiteSpace($relativePath)) {
                 if ($isFileCandidate -and $normalizedLine.IndexOf($SourcePath.Replace("/", "\"), [StringComparison]::OrdinalIgnoreCase) -ge 0) {
@@ -843,11 +851,13 @@ function Save-LastResortMirrorChanges {
         $reason = ""
 
         if (-not (Test-Path -LiteralPath $sourceFilePath -PathType Leaf)) {
+            if (-not $ArchiveDeletions) { continue }
             $shouldArchive = $true
             $reason = "DeletedFromSource"
             $deletedFromSource++
         }
         else {
+            if (-not $ArchiveReplacements) { continue }
             $sourceFile = Get-Item -LiteralPath $sourceFilePath -Force
             if (Test-BackupFileWouldChange -SourceFile $sourceFile -DestinationFile $destinationFile -TimeToleranceSeconds $TimeToleranceSeconds) {
                 $shouldArchive = $true
@@ -1175,7 +1185,8 @@ function Invoke-RobocopyChecked {
     param(
         [Parameter(Mandatory = $true)]
         [string[]] $Arguments,
-        [object] $PreviewSummary = $null
+        [object] $PreviewSummary = $null,
+        [switch] $PassThruResult
     )
 
     $errors = [System.Collections.Generic.List[string]]::new()
@@ -1189,18 +1200,24 @@ function Invoke-RobocopyChecked {
         if ($_ -match '(?i)\b(?:ERROR|FEHLER)\s+\d+\s+\(0x[0-9a-f]+\)') { $errors.Add([string]$_) }
     }
     $exitCode = $LASTEXITCODE
+    $actualExitCode = $exitCode
     $locked = 0
     if (-not (Test-RobocopyExitCode -ExitCode $exitCode)) {
         $locked = Get-RobocopyLockOnlyCount -OutputLines $errors.ToArray() -ExitCode $exitCode
         if ($locked -eq 0) { throw "Robocopy failed with exit code $exitCode." }
         $exitCode = $exitCode -band 7
     }
-    $locked += [int]($excluded.Count / 2)
+    $lockedAtCopy = $locked
+    $lockedAtPreflight = [int]($excluded.Count / 2)
+    $locked += $lockedAtPreflight
     $logArg = @($Arguments | Where-Object { $_ -match '^/LOG\+?:' } | Select-Object -Last 1)
     if ($locked -gt 0 -and $logArg.Count) {
         Write-BackupAirLog -Path ($logArg[0] -replace '^/LOG\+?:', '') -Message "WARNING: Robocopy locked files skipped: count=$locked; retry=next-run."
     }
 
+    if ($PassThruResult) {
+        return [pscustomobject]@{ ExitCode=$actualExitCode; NormalizedExitCode=$exitCode; LockedAtCopy=$lockedAtCopy; LockedAtPreflight=$lockedAtPreflight }
+    }
     return $exitCode
 }
 

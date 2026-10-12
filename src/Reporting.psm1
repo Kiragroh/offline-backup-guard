@@ -40,18 +40,23 @@ function Publish-BackupReport {
     $day = ([DateTimeOffset]::Parse($Run.finished_at)).ToString('yyyy-MM-dd')
     Write-AtomicReport -Path (Join-Path $ReportRoot "daily\$day.json") -Content $payload
     $latestStorage = $history | Select-Object -Last 1
-    $status = if ($Run.success) { 'Completed (review warnings and restore-test results)' } else { 'FAILED - operator review required' }
+    $status = if (-not $Run.success) { 'FAILED - operator review required' } elseif ($Run.warnings -gt 0) { 'COMPLETED WITH WARNINGS - review skipped files and capacity' } else { 'Completed (restore testing remains necessary)' }
     $lines = @('# Offline Backup Guard - daily report', '', "Finished: $($Run.finished_at)", "Status: $status", "Disk confirmed offline: $($Run.offline)", '')
+    if ($Run.started_at) { $lines += "Started: $($Run.started_at)" }
+    if ($Run.error) { $lines += ('Reason: ' + ([string]$Run.error).Replace("`r",' ').Replace("`n",' ')) }
+    if ($Run.log_path) { $lines += "Runner log: $($Run.log_path)" }
+    if ($Run.robocopy_log_path) { $lines += "Robocopy log: $($Run.robocopy_log_path)" }
+    if ($Run.event_path) { $lines += "Structured events: $($Run.event_path)" }
     if ($latestStorage) {
         $lines += "Storage measured: $($latestStorage.measured_at)"
         $lines += ('Capacity: {0:N2} GB; used: {1:N2} GB; free: {2:N2} GB' -f ($latestStorage.capacity_bytes/1e9), ($latestStorage.used_bytes/1e9), ($latestStorage.free_bytes/1e9))
         $age = ([DateTimeOffset]::Parse($Run.finished_at) - [DateTimeOffset]::Parse($latestStorage.measured_at)).TotalHours
         $lines += "Storage sample stale (over 36 hours): $($age -gt 36)"
     } else { $lines += 'Storage: not measured. No estimate available.' }
-    $lines += @('', '| Source | Completed | Previous files retained | Locked at preflight |', '| --- | --- | ---: | ---: |')
+    $lines += @('', '| Source | Completed | Previous files retained | Locked at preflight | Locked during copy | Expired recovery files deleted |', '| --- | --- | ---: | ---: | ---: | ---: |')
     foreach ($source in $Run.sources) {
         $label = ([string]$source.name).Replace('|','/').Replace("`n",' ').Replace("`r",' ')
-        $lines += "| $label | $($source.success) | $($source.archived_files) | $($source.locked_at_preflight) |"
+        $lines += "| $label | $($source.success) | $($source.archived_files) | $($source.locked_at_preflight) | $($source.locked_at_copy) | $($source.retention_deleted_files) |"
     }
     $lines += @('', 'Unknown counters are blank. Robocopy diagnostics remain in private local logs.', 'A successful copy is not proof of application-consistent recovery.', 'No refresh or mount is performed when reading this report.', '')
     Write-AtomicReport -Path (Join-Path $ReportRoot 'latest.md') -Content ($lines -join "`n")

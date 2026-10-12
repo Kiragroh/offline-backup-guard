@@ -14,4 +14,10 @@ reports/
 __pycache__/
 .pytest_cache/
 canary.txt
+*-diagnostics/
+*.events.jsonl
+*.backup-*
+*.bak-*
+*.tmp-*
+setup-state.json
 .DS_Store

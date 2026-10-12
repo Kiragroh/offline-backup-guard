@@ -59,10 +59,26 @@ source; a changing source can still be inconsistent without a snapshot or export
 ## Retention and space
 
 The current mirror and previous versions share the same disk and failure domain.
-Changed destination files are copied into quarantine before replacement. Keep
-enough free capacity for old versions and incoming data. Retention cleanup runs
-only after a successful source pass. Disk-full errors remain failures; this tool
-does not discard recovery copies to make a failing run look successful.
+Changed destination files are copied into quarantine before replacement when
+replacement versioning is enabled. New sources default to one previous version
+in addition to the current mirror. CSV `PreviousVersions` can be 0 (off), 1 or a
+higher count up to 1,000. A blank value keeps the legacy age-based `RetentionDays`
+policy; it is not automatically changed to the new default.
+
+Deleted destination files are retained separately when mirroring is enabled.
+`DeletedRetentionDays` controls their lifetime (blank inherits `RetentionDays`).
+Deletion archives do not consume replacement-version slots. Recent deletion
+history protects older recovery copies of a now-absent file until that protection
+expires; timestamp ties and uncertain metadata may retain additional copies.
+There is no promise that total disk usage equals exactly N versions per file.
+
+Retention cleanup runs only after a successful source pass without sharing-lock
+warnings. Reparse points other than the explicitly validated volume mount, unknown
+timestamps, unindexed files and malformed manifests defer cleanup with a visible
+warning. Do not modify quarantine/manifests manually. Reducing a policy can remove
+previously retained files on a later successful run; the wizard requires consent.
+Keep enough free capacity for old versions and incoming data. Disk-full errors
+remain failures; the tool does not discard recovery copies to force success.
 
 `MaxDeleteCount` is per source. A value of 0 disables that count limit. Start with a
 positive limit and review unexpected mass changes; do not habitually raise limits

@@ -18,4 +18,17 @@ Never post secrets or patient information to obtain support.
 Only the current tagged release is reviewed for fixes. There is no response-time
 or clinical availability guarantee. Sign/review scripts using your local policy;
 do not bypass endpoint protection, relax execution policies, or expose a web-to-shell
-launcher. The repository does not install services or request elevation itself.
+launcher. No service or task is installed automatically. Explicit desktop actions
+can request Windows elevation to test a real backup or register a scheduled task.
+
+Protect the installed scripts and configuration from untrusted modification before
+registering a highest-privilege task. The wizard does not establish enterprise ACLs,
+sign scripts, encrypt the disk or prove access under a different scheduled identity.
+Its private temporary files and journals can contain paths and error messages.
+Credentials go only through the Windows credential dialog and Task Scheduler, not
+configuration, request files or diagnostics. Canary pins are never silently relearned.
+
+Viewing status never mounts the disk. A recorded successful offline transition is
+historical evidence, not a statement about the current physical connection. The GUI
+is not an unattended alerting service and cannot report while closed. Review missed
+jobs and stale measurements, and retain independently recoverable copies.

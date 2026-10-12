@@ -27,7 +27,38 @@ maps, production configurations, credentials, or operational records in this rep
   per-source results and retained-file counts; at most one storage point per day.
 
 No cloud connection, email integration, telemetry, automatic privilege elevation,
-or task installation is included. Reports stay readable when the disk is offline.
+or background monitoring service is included. Task installation is an explicit,
+confirmed wizard action through Windows UAC. Reports stay readable when the disk is offline.
+
+## Setup wizard and health view
+
+On Windows, double-click `Start-BackupGuard.cmd`, or launch the English native
+desktop interface from PowerShell:
+
+```powershell
+powershell.exe -NoProfile -STA -File .\Start-BackupGuard.ps1
+```
+
+The wizard walks through the dedicated disk identity, source folders, schedule,
+account and review. It can load an existing configuration, save backed-up edits,
+run read-only preflight, start an explicitly requested test, and register a Windows
+task after confirmation. Passwords are entered through Windows and are never
+written into configuration files. Interactive task mode requires that user to
+remain logged in; an unattended account needs appropriate rights and acceptance
+in its actual execution context.
+
+The status view reads durable journals and Windows Task Scheduler without mounting
+the backup disk. It distinguishes warnings, failures, interrupted runners and
+missed daily starts. It shows the last attempt/success, failure streak and first
+failure, next scheduled run, task configuration drift, logs and timestamped free
+capacity. A manual size estimate reads only the selected sources; unreadable or
+excluded regions make it incomplete, not a guaranteed space requirement.
+
+See [the desktop guide](docs/DESKTOP.md) for setup, diagnostics and acceptance limits.
+
+![Desktop health view with fictional failure history and stale capacity](assets/gui-status.png)
+
+The screenshot uses synthetic examples, not a running installation.
 
 ## Quick start
 
@@ -85,17 +116,36 @@ The disk contains `OfflineBackupGuard/Current/<alias>` and
 `OfflineBackupGuard/Quarantine/<alias>/<run>`. These are generic application-owned
 folders, not a model of any organization's infrastructure.
 
-`latest.md` and `latest.json` describe the last completed runner invocation.
+`latest.md` and `latest.json` describe the last completed validated backup invocation.
 `daily/YYYY-MM-DD.*` retains one report per day; additional same-day invocations
 replace that day's report. `storage-history.json` keeps the first measurement per
 measurement day, up to 366 entries. Old values retain their original timestamp.
 The runner publishes after copying, before exit; reading a report never probes
-or mounts the disk. Early preflight failures are visible in Task Scheduler/stdout,
-and do not overwrite a report using an unvalidated configuration.
+or mounts the disk. Every invocation also writes a run journal under a private
+`<config-name>-diagnostics` directory beside its configuration. This captures
+early configuration/preflight failures without trusting unvalidated report paths.
+If even that directory cannot be written, console/task diagnostics remain the
+fallback. Validation attempts do not count as successful backups.
 
-Counts are conservative: this release reports retained files and locks found at
-preflight. It does **not** label Robocopy preview counts as actual files copied or
-deleted. Later lock diagnostics remain in the private log. No dashboard is required;
+### Previous file versions
+
+New setups keep the **current backup plus one previous replacement version per
+file**. Increase `PreviousVersions` per source (for example 3 or 10), or set it to
+0 to disable replacement versioning for that source. Deleted-file recovery has a
+separate `DeletedRetentionDays` setting, default 30 days. Turning off replacement
+versions does not turn off deleted-file protection when mirroring is enabled.
+
+A blank `PreviousVersions` preserves the original time-based `RetentionDays`
+policy for existing configurations. Settings are not silently migrated. The GUI
+requires confirmation before reductions. Pruning happens after successful copying,
+not when you save settings; sharing-lock warnings defer pruning for that source.
+Deleted-file protection, ambiguous timestamps or unsafe metadata may retain more
+than the selected count. Retention warnings are visible and never silently ignored.
+See [retention and recovery details](docs/OPERATIONS.md#retention-and-space).
+
+Counts are conservative: this release reports retained/expired recovery files and
+locks found at preflight or during copying. It does **not** label Robocopy preview
+counts as actual files copied or deleted. Detailed diagnostics remain in private logs. No dashboard is required;
 other monitoring tools can ingest the JSON without access to the backup contents.
 
 ## Why this can help radiotherapy BCM

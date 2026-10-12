@@ -9,7 +9,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Windows PowerShell synthetic tests
         shell: powershell
-        run: ./tests/Test-BackupGuard.ps1
+        run: |
+          Get-ChildItem ./tests/Test-*.ps1 | ForEach-Object {
+            & $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Failed: $($_.Name)" }
+          }
       - name: PowerShell Core synthetic tests
         shell: pwsh
-        run: ./tests/Test-BackupGuard.ps1
+        run: |
+          Get-ChildItem ./tests/Test-*.ps1 | ForEach-Object {
+            & $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Failed: $($_.Name)" }
+          }
+      - name: Native GUI construction smoke test
+        shell: powershell
+        run: ./Start-BackupGuard.ps1 -SmokeTest -ScreenshotPath "$env:RUNNER_TEMP/backup-guard-smoke.png"

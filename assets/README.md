@@ -12,3 +12,9 @@ disk visibly separated by an unplugged cable, clock and document stack suggestin
 scheduled backup window. Teal, warm coral, charcoal and white. No organization branding,
 hospital logos, addresses, usernames, IP addresses, file paths or patient data.
 Illustrate a supplemental offline backup workflow, not an impenetrable shield."
+
+# Desktop screenshots
+
+`gui-status.png` and `gui-sources.png` are rendered by the native desktop's
+`-SmokeTest` mode using fictional paths, accounts, disks and run records.
+They contain no production observations.

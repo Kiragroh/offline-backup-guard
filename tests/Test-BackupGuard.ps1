@@ -59,6 +59,19 @@ try {
     } finally { $handle.Dispose() }
     Invoke-RobocopyChecked -Arguments $arguments | Out-Null
     Check ([IO.File]::ReadAllText("$temp\destination\data.txt") -eq 'locked next revision') 'Next run catches up after unlock'
+    [IO.File]::WriteAllText("$temp\source\data.txt", 'one more replacement, versioning disabled')
+    [IO.File]::WriteAllText("$temp\destination\removed-again.txt", 'deleted-file protection is independent')
+    $preview=Invoke-RobocopyPreview $arguments "$temp\copy.log"
+    $saved=Save-LastResortMirrorChanges -SourcePath "$temp\source" -DestinationPath "$temp\destination" -LastResortRunPath "$temp\quarantine\disabled\run" -PreviewSummary $preview -ArchiveReplacements $false
+    Check ($saved.ArchivedFiles -eq 1 -and -not (Test-Path "$temp\quarantine\disabled\run\data.txt")) 'Disabled replacement versions do not capture changed files'
+    Check (Test-Path "$temp\quarantine\disabled\run\removed-again.txt") 'Disabling versions preserves deleted-file capture'
+    $saved=Save-LastResortMirrorChanges -SourcePath "$temp\source" -DestinationPath "$temp\destination" -LastResortRunPath "$temp\quarantine\no-mirror\run" -PreviewSummary $preview -ArchiveDeletions $false
+    Check (-not (Test-Path "$temp\quarantine\no-mirror\run\removed-again.txt")) 'Non-mirrored extra files are not needlessly captured'
+    # Deterministic late-lock diagnostics; actual copy behavior varies by Windows copy API.
+    & $module { function script:robocopy.exe { $global:LASTEXITCODE=8; 'ERROR 32 (0x00000020) Copying File C:\Example\locked.txt' } }
+    $late=Invoke-RobocopyChecked -Arguments $arguments -PreviewSummary ([pscustomobject]@{LockedPaths=@()}) -PassThruResult
+    Check ($late.ExitCode -eq 8 -and $late.LockedAtCopy -eq 1 -and $late.LockedAtPreflight -eq 0) 'Actual-copy sharing diagnostics survive normalized exit handling'
+    & $module { Remove-Item Function:script:robocopy.exe }
     $run=[ordered]@{success=$true;offline=$true;finished_at='2026-01-02T07:00:00+00:00';sources=@();storage=@{measured_at='2026-01-02T03:00:00+00:00';capacity_bytes=1000;free_bytes=600;used_bytes=400}}
     Publish-BackupReport -ReportRoot "$temp\reports" -Run $run
     Publish-BackupReport -ReportRoot "$temp\reports" -Run $run
