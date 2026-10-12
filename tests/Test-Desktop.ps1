@@ -84,11 +84,30 @@ static class GateTests {
     $versionDir=Join-Path $install 'versions\8.0.0'
     New-Item -ItemType Directory -Path $versionDir -Force|Out-Null
     $expectedHash=(Get-FileHash -LiteralPath (Join-Path $temp "build space's\package\Desktop.exe")).Hash
+    $marker=Join-Path $versionDir 'installing.txt'
+    [IO.File]::WriteAllText($marker,$expectedHash.Substring(0,12))
+    Run-Setup $setup '--install --no-startup' 1
+    Check ([IO.File]::ReadAllText($marker) -eq $expectedHash.Substring(0,12)) 'Ambiguous legacy malformed marker remains fail-closed and untouched'
+    Remove-Item -LiteralPath $marker
+    $foreign=Join-Path $versionDir 'foreign.txt'
+    [IO.File]::WriteAllText($foreign,'UNOWNED')
+    Run-Setup $setup '--install --no-startup' 1
+    Check ([IO.File]::ReadAllText($foreign) -eq 'UNOWNED' -and -not (Test-Path (Join-Path $versionDir 'installing.txt'))) 'Unmarked nonempty version remains untouched and unclaimed'
+    Remove-Item -LiteralPath $foreign
+    $abandonedStage=Join-Path $install ('stage-'+[guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $abandonedStage|Out-Null
+    $pendingMarker=Join-Path $abandonedStage ('installing-'+[guid]::NewGuid().ToString('N')+'.tmp')
+    [IO.File]::WriteAllText($pendingMarker,$expectedHash.Substring(0,12))
+    Run-Setup $setup '--install --no-startup'
+    Check (Test-Path (Join-Path $versionDir 'complete.txt')) 'Empty expected version directory from an interrupted creation is recoverable'
+    Check ([IO.File]::ReadAllText($pendingMarker) -eq $expectedHash.Substring(0,12)) 'Interrupted pre-publication staging marker cannot block or contaminate retry'
     [IO.File]::WriteAllText((Join-Path $versionDir 'installing.txt'),$expectedHash)
     [IO.File]::WriteAllText((Join-Path $versionDir 'Desktop.exe'),'INTERRUPTED COPY')
     New-Item -ItemType Directory -Path (Split-Path $config -Parent) -Force | Out-Null
     [IO.File]::WriteAllText($config,'PRESERVE')
-    Run-Setup $setup '--install --no-startup'
+    $markerLock=[IO.File]::Open((Join-Path $versionDir 'installing.txt'),[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::Read -bor [IO.FileShare]::Delete))
+    try{Run-Setup $setup '--install --no-startup'}finally{$markerLock.Dispose()}
+    Check $true 'Valid recovery marker was not opened for rewrite'
     Check (-not (Test-Path (Join-Path $versionDir 'installing.txt')) -and (Test-Path (Join-Path $versionDir 'complete.txt'))) 'Installer-owned interrupted version is recovered and marked complete'
     $current=Get-Content (Join-Path $install 'current.json') -Raw | ConvertFrom-Json
     Check ($current.Version -eq '8.0.0') 'Versioned install is activated'

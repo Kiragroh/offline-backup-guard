@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 - 2026-10-12
+
+- Recover safely when installation is interrupted immediately after creating its
+  empty version directory. Publish the recovery marker atomically before copying
+  payload files, while preserving valid recovery markers and rejecting foreign
+  nonempty directories.
+- Application-first README and desktop guide: release installer, desktop shortcut
+  and tray workflow before optional administrator/developer commands.
+
 ## 0.3.0 - 2026-10-12
 
 - Native Windows application and standalone per-user installer, with a dedicated

@@ -106,13 +106,22 @@ namespace BackupDesktop {
                 Common.NoReparse(marker);Common.NoReparse(Path.Combine(versionDir,"Setup.exe"));Common.NoReparse(Path.Combine(versionDir,"complete.txt"));
                 bool partial=File.Exists(marker);
                 if(partial && File.ReadAllText(marker)!=payloadHash)throw new Exception("Incomplete version belongs to a different package. Preserve it for inspection and use a new version.");
-                if(Directory.Exists(versionDir)&&!partial) {
+                bool emptyVersion=!Directory.Exists(versionDir)||Directory.GetFileSystemEntries(versionDir).Length==0;
+                if(!emptyVersion&&!partial) {
                     Common.Verify(versionDir);
                     if(Common.Hash(Path.Combine(versionDir,"Desktop.exe"))!=payloadHash)throw new Exception("Existing version differs; refusing overwrite.");
                     if(!File.Exists(Path.Combine(versionDir,"complete.txt"))||File.ReadAllText(Path.Combine(versionDir,"complete.txt"))!=setupHash||Common.Hash(Path.Combine(versionDir,"Setup.exe"))!=setupHash)throw new Exception("Installed setup is missing or differs. Refusing activation.");
                 } else {
                     Directory.CreateDirectory(versionDir);
-                    File.WriteAllText(marker,payloadHash);
+                    if(!partial) {
+                        // A crash before publication leaves an empty, retryable version directory.
+                        string pendingMarker=Common.Child(stage,"installing-"+Guid.NewGuid().ToString("N")+".tmp");
+                        using(var stream=new FileStream(pendingMarker,FileMode.CreateNew,FileAccess.Write,FileShare.None)) {
+                            byte[] bytes=System.Text.Encoding.UTF8.GetBytes(payloadHash);
+                            stream.Write(bytes,0,bytes.Length);stream.Flush(true);
+                        }
+                        File.Move(pendingMarker,marker);
+                    }
                     foreach(string file in Directory.GetFiles(stage,"*",SearchOption.AllDirectories)) {
                         string relative=file.Substring(stage.Length+1);string target=Common.Child(versionDir,relative);
                         Directory.CreateDirectory(Path.GetDirectoryName(target));File.Copy(file,target,partial);

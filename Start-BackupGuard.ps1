@@ -89,7 +89,7 @@ $script:preflightPassed = $false; $script:busy = $null; $script:loading = $false
 $script:diskRows = @(); $script:lastStatus = $null; $script:lastActivePoll=[datetime]::MinValue
 
 $form = New-Object Windows.Forms.Form
-$form.Text = 'Offline Backup Guard 0.3.0'
+$form.Text = 'Offline Backup Guard 0.3.1'
 $form.ClientSize = New-Object Drawing.Size(1160,800)
 $form.MinimumSize = New-Object Drawing.Size(1024,720)
 $form.StartPosition = 'CenterScreen'
