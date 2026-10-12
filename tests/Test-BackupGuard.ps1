@@ -77,3 +77,5 @@ try {
     if (-not $resolved.StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase) -or (Split-Path $resolved -Leaf) -notlike 'backup-guard-test-*') { throw 'Unsafe test cleanup path' }
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }
+# Robocopy uses nonzero success codes; all failures above terminate before here.
+exit 0
