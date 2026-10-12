@@ -21,3 +21,4 @@ canary.txt
 *.tmp-*
 setup-state.json
 .DS_Store
+dist/

@@ -18,8 +18,9 @@ Never post secrets or patient information to obtain support.
 Only the current tagged release is reviewed for fixes. There is no response-time
 or clinical availability guarantee. Sign/review scripts using your local policy;
 do not bypass endpoint protection, relax execution policies, or expose a web-to-shell
-launcher. No service or task is installed automatically. Explicit desktop actions
-can request Windows elevation to test a real backup or register a scheduled task.
+launcher. Desktop installation and optional per-user login startup do not register
+or start a backup task. Explicit desktop actions can request Windows elevation to
+test a real backup or register a scheduled backup task.
 
 Protect the installed scripts and configuration from untrusted modification before
 registering a highest-privilege task. The wizard does not establish enterprise ACLs,
@@ -30,5 +31,13 @@ configuration, request files or diagnostics. Canary pins are never silently rele
 
 Viewing status never mounts the disk. A recorded successful offline transition is
 historical evidence, not a statement about the current physical connection. The GUI
-is not an unattended alerting service and cannot report while closed. Review missed
-jobs and stale measurements, and retain independently recoverable copies.
+is not an unattended alerting service. Closing its window leaves the tray client
+running; explicitly exiting the tray or signing out stops that client, not the
+independently scheduled backup. Review missed jobs and stale measurements, and
+retain independently recoverable copies.
+
+The desktop executable and installer are not code-signing or enterprise deployment
+solutions. Inspect the release checksums and follow local application-control
+policy. Installing per user does not make executable files or configuration safe
+against compromise of that same user. Do not register privileged jobs against
+untrusted writable scripts. An integrity manifest is not an independent signature.

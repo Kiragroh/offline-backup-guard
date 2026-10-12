@@ -2,6 +2,8 @@
 [CmdletBinding()]
 param(
     [string]$ConfigPath,
+    [switch]$Tray,
+    [string]$DesktopEventName,
     [switch]$SmokeTest,
     [string]$ScreenshotPath,
     [ValidateSet('Load','Save','Disks','Status','Preflight','Test','Estimate','Restore')][string]$WorkerOperation,
@@ -72,7 +74,13 @@ if ($WorkerOperation) {
 if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') { throw 'Start with powershell.exe -NoProfile -STA -File Start-BackupGuard.ps1 (without an execution-policy bypass).' }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Import-Module (Join-Path $PSScriptRoot 'src\Desktop.psm1') -Force
 [Windows.Forms.Application]::EnableVisualStyles()
+$script:desktopSession=$null
+if(-not $SmokeTest){
+    $script:desktopSession=New-GuardDesktopSession -EventName $DesktopEventName
+    if($script:desktopSession.FocusOnly){$script:desktopSession.Event.Dispose();exit 0}
+}
 if (-not $ConfigPath) { $ConfigPath = Join-Path $env:LOCALAPPDATA 'OfflineBackupGuard\config\backup.psd1' }
 if ($SmokeTest) { $ConfigPath = 'C:\ExamplePrivate\backup.psd1' }
 $script:config = New-GuardSetupConfiguration $ConfigPath
@@ -81,13 +89,19 @@ $script:preflightPassed = $false; $script:busy = $null; $script:loading = $false
 $script:diskRows = @(); $script:lastStatus = $null; $script:lastActivePoll=[datetime]::MinValue
 
 $form = New-Object Windows.Forms.Form
-$form.Text = 'Offline Backup Guard 0.2.0'
+$form.Text = 'Offline Backup Guard 0.3.0'
 $form.ClientSize = New-Object Drawing.Size(1160,800)
 $form.MinimumSize = New-Object Drawing.Size(1024,720)
 $form.StartPosition = 'CenterScreen'
 $form.Font = New-Object Drawing.Font('Segoe UI',9)
 $form.BackColor = [Drawing.Color]::White
 $form.Icon = [Drawing.SystemIcons]::Shield
+$script:desktopIcons=@{}
+foreach($name in @('app','unknown','success','running','warning','error')){
+    $iconPath=Join-Path $PSScriptRoot ('assets\desktop\'+$name+'.ico')
+    if(Test-Path -LiteralPath $iconPath){$script:desktopIcons[$name]=New-Object Drawing.Icon($iconPath)}
+}
+if($script:desktopIcons.app){$form.Icon=$script:desktopIcons.app}
 $form.AutoScaleMode = 'Dpi'
 $tooltips = New-Object Windows.Forms.ToolTip
 $layout = New-Object Windows.Forms.TableLayoutPanel
@@ -107,7 +121,26 @@ function Add-Tool([string]$Name, [Drawing.Icon]$Icon, [scriptblock]$Click) {
     $button.Add_Click($Click); [void]$toolbar.Items.Add($button); return $button
 }
 function Show-Error([object]$ErrorValue) {
+    Write-DesktopLog ([string]$ErrorValue)
     [void][Windows.Forms.MessageBox]::Show($form,[string]$ErrorValue,'Offline Backup Guard','OK','Error')
+}
+function Write-DesktopLog([string]$Message){
+    if($SmokeTest){return}
+    try{
+        $directory=Join-Path $env:LOCALAPPDATA 'OfflineBackupGuard\desktop-logs'
+        Assert-GuardNoReparseAncestor $directory
+        [void][IO.Directory]::CreateDirectory($directory)
+        [IO.File]::AppendAllText((Join-Path $directory ([datetime]::UtcNow.ToString('yyyy-MM-dd')+'.log')),([datetime]::UtcNow.ToString('o')+' '+$Message+"`r`n"))
+    }catch{ $activity.Text='Desktop logging unavailable: '+$_.Exception.Message }
+}
+function Show-DesktopWindow {
+    $form.Show();$form.WindowState='Normal';$form.Activate();[void]$form.BringToFront()
+}
+function Set-TrayHealth([string]$State){
+    $icon=Get-GuardHealthIcon $State
+    $notify.Icon=if($script:desktopIcons[$icon]){$script:desktopIcons[$icon]}else{[Drawing.SystemIcons]::Information}
+    $notify.Text=('Offline Backup Guard: '+$State).Substring(0,[Math]::Min(63,('Offline Backup Guard: '+$State).Length))
+    $trayStatus.Text=$State
 }
 function Confirm-Action([string]$Text) {
     return ([Windows.Forms.MessageBox]::Show($form,$Text,'Confirm action','YesNo','Warning','Button2') -eq 'Yes')
@@ -417,12 +450,13 @@ function Save-Editor {
         Start-UiOperation 'Save' @{ConfigPath=$configPathBox.Text;Config=$candidate.Config;Sources=$candidate.Sources;InitializeCanary=$initialize.Checked;ConfirmRetentionReduction=$confirmed}
     }catch{Show-Error $_.Exception.Message}
 }
-function Start-Status {
+function Start-Status([switch]$Passive) {
     if(-not $script:loadedPath){Show-Error 'Open or save a configuration first.';return}
-    Start-UiOperation 'Status' @{ConfigPath=$script:loadedPath}
+    Start-UiOperation 'Status' @{ConfigPath=$script:loadedPath;Passive=[bool]$Passive}
 }
 function Set-StatusView($Data) {
     $s=$Data.Status; $script:lastStatus=$s
+    Set-TrayHealth ([string]$s.State)
     $statusHeading.Text=[string]$s.State
     $statusHeading.ForeColor=if($s.State -eq 'Succeeded'){[Drawing.Color]::FromArgb(26,110,67)}else{[Drawing.Color]::FromArgb(164,39,39)}
     $latest=@($s.History | Select-Object -First 1)
@@ -465,6 +499,7 @@ function Start-UiOperation([string]$Operation, [hashtable]$Request) {
             $process=Start-Process -FilePath (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -PassThru
             $script:busy=@{Process=$process;Operation=$Operation;Request=$Request;RequestFile=$requestFile;ResultFile=$resultFile;Started=[datetime]::Now}
             Set-Busy $true; $tabs.SelectedIndex=4
+            Set-TrayHealth 'Running'
             $outputBox.Text='Explicit elevated backup test started. Captured runner output is available on completion; current journal progress appears below.'
             return
         }
@@ -475,9 +510,12 @@ function Start-UiOperation([string]$Operation, [hashtable]$Request) {
         $info.StandardOutputEncoding=[Text.Encoding]::UTF8; $info.StandardErrorEncoding=[Text.Encoding]::UTF8
         $process=New-Object Diagnostics.Process; $process.StartInfo=$info; [void]$process.Start()
         $script:busy=@{Process=$process;Operation=$Operation;Request=$Request;RequestFile=$requestFile;ResultFile=$resultFile;Out=$process.StandardOutput.ReadToEndAsync();Err=$process.StandardError.ReadToEndAsync();Started=[datetime]::Now}
-        Set-Busy $true
-        if($Operation -in @('Preflight','Status')){$tabs.SelectedIndex=4}
-    }catch{Show-Error $_.Exception.Message}
+        if($Operation -ne 'Status'){Set-Busy $true}
+        if($Operation -eq 'Preflight' -or ($Operation -eq 'Status' -and -not $Request.Passive)){$tabs.SelectedIndex=4}
+    }catch{
+        if($Operation -eq 'Status' -and $Request.Passive){Set-TrayHealth 'Unknown';Write-DesktopLog $_.Exception.Message}
+        else{Show-Error $_.Exception.Message}
+    }
 }
 function Install-Task {
     if(-not (Assert-Saved)){return}
@@ -495,6 +533,7 @@ function Install-Task {
 }
 $timer=New-Object Windows.Forms.Timer; $timer.Interval=250
 $timer.Add_Tick({
+    if($script:desktopSession -and $script:desktopSession.Event.WaitOne(0)){Show-DesktopWindow}
     if(-not $script:busy){return}
     $job=$script:busy
     $activity.Text='{0} | process {1} | {2:N0} s' -f $job.Operation,$job.Process.Id,([datetime]::Now-$job.Started).TotalSeconds
@@ -529,7 +568,7 @@ $timer.Add_Tick({
             'Load'{ $script:previous=$result.Data; $script:loadedPath=$job.Request.ConfigPath; Set-Editor $result.Data.Config @($result.Data.Sources) $script:loadedPath; $script:dirty=$false }
             'Save'{ $script:previous=[pscustomobject]@{Config=$job.Request.Config;Sources=$job.Request.Sources}; $script:config=$job.Request.Config; $script:loadedPath=$job.Request.ConfigPath; $script:dirty=$false; $script:preflightPassed=$false; $script:loading=$true; $initialize.Checked=$false; $initialize.Enabled=$false; $script:loading=$false }
             'Disks'{ $script:diskRows=@($result.Data); $diskGrid.Rows.Clear(); foreach($disk in $script:diskRows){$index=$diskGrid.Rows.Add();foreach($column in $diskGrid.Columns){$diskGrid.Rows[$index].Cells[$column.Name].Value=[string]$disk.($column.Name)}} }
-            'Status'{Set-StatusView $result.Data; $tabs.SelectedIndex=4}
+            'Status'{Set-StatusView $result.Data; if(-not $job.Request.Passive){$tabs.SelectedIndex=4}}
             'Preflight'{$script:preflightPassed=$true; $outputBox.AppendText("`r`nValidateOnly passed. Scheduled identity and restore acceptance remain unverified.");$tabs.SelectedIndex=4}
             'Estimate'{ $estimateBox.Text=(@($result.Data|ForEach-Object{'{0}: {1:N2} GiB, {2} files; complete={3}; errors={4}; skipped reparse points={5}; {6}' -f $_.Name,($_.Bytes/1GB),$_.Files,$_.Complete,$_.Errors,$_.SkippedReparsePoints,$_.MeasuredAt}) -join "`r`n")+"`r`nEstimate only, not a snapshot or capacity guarantee. Version history needs additional space." }
             'Restore'{$restoreLabel.Text="Operator restore note recorded at $($result.Data.recorded_at). Not independently verified."}
@@ -541,10 +580,15 @@ $timer.Add_Tick({
         if($job.Operation -eq 'Preflight'){$script:preflightPassed=$false}
         $activity.Text=$job.Operation+' failed: '+$_.Exception.Message
         $outputBox.AppendText("`r`n"+$_.Exception.Message)
-        Show-Error $_.Exception.Message
+        if($job.Operation -eq 'Status'){
+            Set-TrayHealth 'Unknown';$statusHeading.Text='Unknown';$statusDetails.Text=$_.Exception.Message
+            Write-DesktopLog $_.Exception.Message
+            if(-not $job.Request.Passive){Show-Error $_.Exception.Message}
+        }else{Show-Error $_.Exception.Message}
     }finally{
         $job.Process.Dispose(); $script:busy=$null; Set-Busy $false
         foreach($file in @($job.RequestFile,$job.ResultFile)){if($file -and (Test-Path -LiteralPath $file)){Remove-Item -LiteralPath $file -Force}}
+        if($job.Operation -in @('Load','Save','Test') -and $script:loadedPath){Start-Status -Passive}
     }
 })
 $tabs.Add_SelectedIndexChanged({
@@ -552,9 +596,25 @@ $tabs.Add_SelectedIndexChanged({
         try{$candidate=Read-Editor;$reviewText.Text="Pinned USB: $($candidate.Config.BackupDisk.FriendlyName)`r`nSerial: $($candidate.Config.BackupDisk.SerialNumber)`r`nSources: $($candidate.Sources.Count) | Task: $($candidate.Config.TaskName) | Daily: $($candidate.Config.ScheduleTime)`r`nAccount: $($candidate.Config.TaskUser) | Logon: $($candidate.Config.TaskLogonType)`r`nCanary SHA256: $($candidate.Config.Canary.ExpectedSha256)`r`n`r`n"+(@($candidate.Sources|ForEach-Object{"$($_.Name): previous versions=$($_.PreviousVersions); deleted days=$($_.DeletedRetentionDays); mirror deletes=$($_.MirrorDeletes)"})-join "`r`n")}catch{Show-Error $_.Exception.Message}
     }
 })
+$script:explicitExit=$false
+$notify=New-Object Windows.Forms.NotifyIcon
+$notify.Icon=$form.Icon;$notify.Text='Offline Backup Guard: Unknown'
+$trayMenu=New-Object Windows.Forms.ContextMenuStrip
+$trayStatus=New-Object Windows.Forms.ToolStripMenuItem('Unknown');$trayStatus.Enabled=$false
+[void]$trayMenu.Items.Add($trayStatus)
+$showItem=New-Object Windows.Forms.ToolStripMenuItem('Open Offline Backup Guard');$showItem.Add_Click({Show-DesktopWindow});[void]$trayMenu.Items.Add($showItem)
+$refreshItem=New-Object Windows.Forms.ToolStripMenuItem('Refresh recorded status');$refreshItem.Add_Click({if(-not $script:busy -and $script:loadedPath){Start-Status -Passive}});[void]$trayMenu.Items.Add($refreshItem)
+[void]$trayMenu.Items.Add((New-Object Windows.Forms.ToolStripSeparator))
+$exitItem=New-Object Windows.Forms.ToolStripMenuItem('Exit');$exitItem.Add_Click({$script:explicitExit=$true;$form.Close()});[void]$trayMenu.Items.Add($exitItem)
+$notify.ContextMenuStrip=$trayMenu;$notify.Add_DoubleClick({Show-DesktopWindow});$notify.Visible=$true
+Set-TrayHealth 'Unknown'
+$statusTimer=New-Object Windows.Forms.Timer;$statusTimer.Interval=30000
+$statusTimer.Add_Tick({if(-not $script:busy -and $script:loadedPath){Start-Status -Passive}})
 $form.Add_FormClosing({param($sender,$eventArgs)
-    if($script:busy){$eventArgs.Cancel=$true;Show-Error 'An operation is active. Wait for it to finish; stopping a backup could prevent its offline cleanup.'}
-    elseif(-not $SmokeTest -and $script:dirty -and -not (Confirm-Action 'Close with unsaved changes?')){$eventArgs.Cancel=$true}
+    $action=Get-GuardCloseAction ([string]$eventArgs.CloseReason) $script:explicitExit ([bool]$script:busy)
+    if($action -eq 'Hide'){$eventArgs.Cancel=$true;$form.Hide();return}
+    if($action -eq 'Wait'){$eventArgs.Cancel=$true;$script:explicitExit=$false;Show-Error 'An operation is active. Wait for it to finish; no worker will be stopped.';return}
+    if($eventArgs.CloseReason -eq 'UserClosing' -and -not $SmokeTest -and $script:dirty -and -not (Confirm-Action 'Exit and discard unsaved changes?')){$eventArgs.Cancel=$true;$script:explicitExit=$false}
 })
 Set-Editor $script:config @() $ConfigPath
 
@@ -588,16 +648,35 @@ if($SmokeTest){
             $bitmap.Save($path,[Drawing.Imaging.ImageFormat]::Png); Write-Output "Smoke screenshot: $path"
         }finally{$bitmap.Dispose()}
     }
-    $form.Close();$form.Dispose();$timer.Dispose();$tooltips.Dispose()
+    $before=(Read-Editor|ConvertTo-Json -Depth 12 -Compress);$script:dirty=$true
+    $trayMenu.Show($form,(New-Object Drawing.Point(30,60)));[Windows.Forms.Application]::DoEvents()
+    $trayBitmap=New-Object Drawing.Bitmap($trayMenu.Width,$trayMenu.Height)
+    try{$trayMenu.DrawToBitmap($trayBitmap,(New-Object Drawing.Rectangle(0,0,$trayMenu.Width,$trayMenu.Height)));$trayBitmap.Save(([IO.Path]::ChangeExtension($ScreenshotPath,'tray.png')),[Drawing.Imaging.ImageFormat]::Png)}finally{$trayBitmap.Dispose();$trayMenu.Hide()}
+    $form.Close();[Windows.Forms.Application]::DoEvents()
+    if($form.IsDisposed -or $form.Visible -or -not $notify.Visible){throw 'Window close did not hide to tray.'}
+    Show-DesktopWindow
+    Set-StatusView ([pscustomobject]@{Status=$script:lastStatus;Restore=$null})
+    if(-not $script:dirty -or (Read-Editor|ConvertTo-Json -Depth 12 -Compress) -cne $before){throw 'Hide/focus/status changed the unsaved editor.'}
+    $script:explicitExit=$true;$form.Close();[Windows.Forms.Application]::DoEvents()
+    if(-not $form.IsDisposed){throw 'Explicit exit did not dispose the editor.'}
+    $notify.Visible=$false;$notify.Dispose();$trayMenu.Dispose();$statusTimer.Dispose()
+    $form.Dispose();$timer.Dispose();$tooltips.Dispose()
+    foreach($icon in $script:desktopIcons.Values){$icon.Dispose()}
+    Write-Output 'PASS actual form hide, focus, unsaved status refresh and explicit exit lifecycle'
     exit 0
 }
 $form.Add_Shown({
     $timer.Start()
+    $statusTimer.Start()
+    if($Tray){[void]$form.BeginInvoke([Action]{$form.Hide()})}
     if(Test-Path -LiteralPath $ConfigPath -PathType Leaf){Start-UiOperation 'Load' @{ConfigPath=$ConfigPath}}
 })
-try{[void]$form.ShowDialog()}finally{
+try{[Windows.Forms.Application]::Run($form)}finally{
+    $notify.Visible=$false;$notify.Dispose();$trayMenu.Dispose();$statusTimer.Stop();$statusTimer.Dispose()
     $timer.Stop();$timer.Dispose();$tooltips.Dispose();$form.Dispose()
-    if($script:sessionDirectory){
+    foreach($icon in $script:desktopIcons.Values){$icon.Dispose()}
+    if($script:desktopSession){$script:desktopSession.Event.Dispose();if($script:desktopSession.Mutex){$script:desktopSession.Mutex.ReleaseMutex();$script:desktopSession.Mutex.Dispose()}}
+    if($script:sessionDirectory -and -not $script:busy){
         $resolved=[IO.Path]::GetFullPath($script:sessionDirectory)
         $allowed=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')+'\'
         if($resolved.StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase) -and (Split-Path $resolved -Leaf) -match '^backup-guard-ui-[a-f0-9]{32}$') {Remove-Item -LiteralPath $resolved -Recurse -Force}

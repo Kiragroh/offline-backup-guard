@@ -31,7 +31,7 @@ function New-GuardRun {
     $id = (Get-Date -Format 'yyyy-MM-dd_HHmmss_fff') + '_' + [guid]::NewGuid().ToString('N').Substring(0,8)
     New-Item -ItemType Directory -Path (Join-Path $root 'runs') -Force | Out-Null
     [ordered]@{
-        schema_version=2; tool_version='0.2.0'; id=$id; kind=$Kind; started_at=(Get-Date).ToString('o'); finished_at=$null
+        schema_version=2; tool_version='0.3.0'; id=$id; kind=$Kind; started_at=(Get-Date).ToString('o'); finished_at=$null
         status='Running'; phase='Initialization'; success=$false; warnings=0; warning_messages=@(); offline=$null
         storage=$null; sources=@(); error=$null; pid=$PID; host_name=$env:COMPUTERNAME
         process_started_at=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')

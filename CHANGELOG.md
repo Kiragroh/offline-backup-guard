@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 - 2026-10-12
+
+- Native Windows application and standalone per-user installer, with a dedicated
+  multi-resolution icon, desktop/Start-menu shortcuts and selectable login startup.
+- Close-to-tray, explicit exit and per-user single-instance focus; background status
+  refresh leaves unsaved configuration edits untouched and never mounts storage.
+- Verified versioned installation, interrupted-install recovery, integration
+  ownership checks, downgrade protection and persistent launcher diagnostics.
+- Uninstall removes desktop integration but retains versioned runners, scheduled
+  tasks, private configuration and backup data.
+- Isolated native installation/lifecycle tests, GUI smoke views and a read-only
+  installation verifier. Artifacts are unsigned; local application policy applies.
+
 ## 0.2.0 - 2026-10-12
 
 - English native Windows setup wizard and read-only health dashboard.

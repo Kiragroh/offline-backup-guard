@@ -27,13 +27,21 @@ maps, production configurations, credentials, or operational records in this rep
   per-source results and retained-file counts; at most one storage point per day.
 
 No cloud connection, email integration, telemetry, automatic privilege elevation,
-or background monitoring service is included. Task installation is an explicit,
+or Windows monitoring service is included. The optional per-user tray app refreshes
+recorded health while it runs, including when its window is hidden. Task installation is an explicit,
 confirmed wizard action through Windows UAC. Reports stay readable when the disk is offline.
 
 ## Setup wizard and health view
 
-On Windows, double-click `Start-BackupGuard.cmd`, or launch the English native
-desktop interface from PowerShell:
+For an installable Windows application, build with `powershell.exe -NoProfile -File
+.\Build-Desktop.ps1`, then open `dist\desktop\Setup.exe` without elevation. Setup
+creates desktop and Start menu shortcuts and offers login startup (checked by
+default; uncheck to decline). It never registers a backup task. Close hides the
+editor to its tray icon; choose **Exit** to quit. Reopening the shortcut restores
+the existing editor and preserves unsaved changes. `Desktop.exe --tray` starts hidden.
+
+Alternatively, double-click `Start-BackupGuard.cmd`, or launch the same editor
+directly from Windows PowerShell:
 
 ```powershell
 powershell.exe -NoProfile -STA -File .\Start-BackupGuard.ps1
