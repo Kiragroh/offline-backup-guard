@@ -45,8 +45,14 @@ occurs only after a successful copy, with path/reparse-point guards.
   validation/test operations out of the UI thread. Add GUI construction smoke
   tests; do not install a real task or mount a real disk during tests.
 - [x] Integrate runner and reporting. Run all tests on PowerShell 5.1 and 7.
-- [ ] Review privacy and safety, document behavior, update release notes, commit,
+- [x] Review privacy and safety, document behavior, update release notes, commit,
   publish and verify GitHub Actions. Record hardware/UI acceptance boundaries.
+
+Verification: 194 synthetic checks passed on each of Windows PowerShell 5.1 and
+PowerShell 7. Five desktop views were rendered and visually inspected using only
+fictional data. [GitHub Actions verification](https://github.com/Kiragroh/offline-backup-guard/actions/runs/38248845377)
+passed both suites and the native GUI smoke test. Real disk mounting, task
+registration, credential submission and restore acceptance were not performed.
 
 ## Safety and release criteria
 
