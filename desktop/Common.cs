@@ -33,8 +33,16 @@ namespace BackupDesktop {
             if(!Regex.IsMatch(Brand.AppId,@"^[A-Za-z][A-Za-z0-9.-]{2,79}$") ||
                 Brand.Name.IndexOfAny(Path.GetInvalidFileNameChars())>=0 || String.IsNullOrWhiteSpace(Brand.Name)) throw new Exception("Invalid application identity.");
             new Version(Brand.Version);
+#if DESKTOP_TESTS
+            // Compile-time CI exception; never available to production binaries.
+            if(!Regex.IsMatch(Brand.AppId,@"\ABackupGuardTest\.[a-f0-9]{32}\z") ||
+                !Regex.IsMatch(Brand.Name,@"\ABackup Guard Test [a-f0-9]{32}\z") ||
+                Brand.EntryScript!=@"tests\fixtures\DesktopProbe.ps1")
+                throw new Exception("TestBuild requires the isolated test identity, name and desktop probe.");
+#else
             if(IsElevated && (setup || !Brand.AllowAdministrativeLaunch))
                 throw new Exception("Start this per-user application without administrator elevation. Backup elevation is a separate explicit editor action.");
+#endif
         }
         public static void NoReparse(string path) {
             for(string p=Path.GetFullPath(path);!String.IsNullOrEmpty(p);p=Path.GetDirectoryName(p))

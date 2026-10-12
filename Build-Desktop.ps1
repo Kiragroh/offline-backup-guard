@@ -8,9 +8,15 @@ param(
     [ValidatePattern('^[A-Za-z][A-Za-z0-9.-]{2,79}$')][string]$AppId='OfflineBackupGuard',
     [string]$Version,
     [switch]$AllowAdministrativeLaunch,
+    [switch]$TestBuild,
     [string]$OutputDirectory
 )
 $ErrorActionPreference='Stop'
+if($TestBuild -and ($AppId -cnotmatch '^BackupGuardTest\.[a-f0-9]{32}$' -or
+    $Name -cnotmatch '^Backup Guard Test [a-f0-9]{32}$' -or
+    $EntryScript -cne 'tests\fixtures\DesktopProbe.ps1')){
+    throw 'TestBuild requires an isolated BackupGuardTest.<32 lowercase hex> AppId, Backup Guard Test <32 lowercase hex> name, and tests\fixtures\DesktopProbe.ps1 entry script.'
+}
 if(-not $PackageRoot){$PackageRoot=$PSScriptRoot}
 if(-not $OutputDirectory){$OutputDirectory=Join-Path $PSScriptRoot 'dist\desktop'}
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -58,12 +64,14 @@ $common=Join-Path $PSScriptRoot 'desktop\Common.cs'
 $icon=Join-Path $stage 'assets\desktop\app.ico'
 $references=@('/r:System.Windows.Forms.dll','/r:System.Drawing.dll','/r:System.Web.Extensions.dll','/r:System.IO.Compression.dll','/r:System.IO.Compression.FileSystem.dll','/r:Microsoft.CSharp.dll')
 $app=Join-Path $stage 'Desktop.exe'
-& $compiler /nologo /target:winexe /optimize+ /platform:anycpu "/win32icon:$icon" "/resource:$brand,brand.json" "/out:$app" @references $metadata $common (Join-Path $PSScriptRoot 'desktop\Launcher.cs')
+$defines=@()
+if($TestBuild){$defines=@('/define:DESKTOP_TESTS')}
+& $compiler /nologo /target:winexe /optimize+ /platform:anycpu "/win32icon:$icon" "/resource:$brand,brand.json" "/out:$app" @defines @references $metadata $common (Join-Path $PSScriptRoot 'desktop\Launcher.cs')
 if($LASTEXITCODE -ne 0){throw 'Native application compilation failed.'}
 $zip=Join-Path $OutputDirectory 'payload.zip'
 [IO.Compression.ZipFile]::CreateFromDirectory($stage,$zip)
 $setup=Join-Path $OutputDirectory 'Setup.exe'
-& $compiler /nologo /target:winexe /optimize+ /platform:anycpu "/win32icon:$icon" "/resource:$brand,brand.json" "/resource:$zip,payload.zip" "/out:$setup" @references $metadata $common (Join-Path $PSScriptRoot 'desktop\Setup.cs')
+& $compiler /nologo /target:winexe /optimize+ /platform:anycpu "/win32icon:$icon" "/resource:$brand,brand.json" "/resource:$zip,payload.zip" "/out:$setup" @defines @references $metadata $common (Join-Path $PSScriptRoot 'desktop\Setup.cs')
 if($LASTEXITCODE -ne 0){throw 'Native installer compilation failed.'}
 foreach($file in Get-ChildItem -LiteralPath $stage -File -Recurse){
     $destination=Join-Path $OutputDirectory $file.FullName.Substring($stage.Length+1)
