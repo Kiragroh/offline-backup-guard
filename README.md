@@ -2,7 +2,46 @@
 
 # Offline Backup Guard
 
-**A Windows file-backup toolkit for scheduled, canary-checked copies to a dedicated USB disk, with recovery retention and offline-readable reports.**
+**A Windows desktop application for scheduled backups to a dedicated USB disk, with a setup wizard, a system tray icon and a backup health dashboard.**
+
+Install the app, open it from your desktop or Start menu, and configure your
+backup in the graphical interface. **No terminal commands are needed for the
+normal installation and setup workflow.** PowerShell and Robocopy work behind
+the scenes; the command-line tools remain available for administrators.
+
+## Quick start: Windows app
+
+1. Open [Releases](https://github.com/Kiragroh/offline-backup-guard/releases/latest)
+   and download **`Setup.exe`** from the release assets (desktop installer: v0.3.0
+   and later), not GitHub's **Source code** ZIP.
+2. Double-click **`Setup.exe`** as your normal Windows user. Choose whether the
+   tray app should start when you sign in. Installation adds desktop and Start
+   menu shortcuts; it does not start a backup or register a backup job.
+3. Open **Offline Backup Guard** from either shortcut. The setup wizard lets you
+   select a dedicated, already formatted USB disk, add source folders, and review
+   canary checks, previous file versions and the nightly schedule.
+4. Run the wizard's read-only checks, then explicitly start a test backup with
+   disposable data. Check the report and restore a test file to a separate folder
+   before enabling a scheduled backup. Administrative actions request Windows
+   approval; source-folder permissions still need to be configured correctly.
+5. Close the window to keep the app in the **system tray**. Open it again from
+   the tray, desktop or Start menu to see status, logs and recorded free space.
+   Choose **Exit** in the tray menu to quit the app. Scheduled backup jobs run
+   independently of the open window and tray app.
+
+Windows PowerShell 5.1 and Robocopy are used internally. This is a Windows app,
+not a website or a cloud backup service. Installers are currently unsigned;
+follow your organization's approval policy if Windows blocks installation.
+Do not bypass security controls.
+
+![Desktop health view with fictional failure history and stale capacity](assets/gui-status.png)
+
+*The screenshot uses synthetic examples, not a running installation.*
+
+[Desktop guide](docs/DESKTOP.md) | [Release notes](CHANGELOG.md) |
+[Administrator guide](docs/OPERATIONS.md)
+
+## Before using real data
 
 This is a reusable reference implementation, not a managed backup product. All
 examples are fictional. There are no organization-specific integrations, network
@@ -33,20 +72,6 @@ confirmed wizard action through Windows UAC. Reports stay readable when the disk
 
 ## Setup wizard and health view
 
-For an installable Windows application, build with `powershell.exe -NoProfile -File
-.\Build-Desktop.ps1`, then open `dist\desktop\Setup.exe` without elevation. Setup
-creates desktop and Start menu shortcuts and offers login startup (checked by
-default; uncheck to decline). It never registers a backup task. Close hides the
-editor to its tray icon; choose **Exit** to quit. Reopening the shortcut restores
-the existing editor and preserves unsaved changes. `Desktop.exe --tray` starts hidden.
-
-Alternatively, double-click `Start-BackupGuard.cmd`, or launch the same editor
-directly from Windows PowerShell:
-
-```powershell
-powershell.exe -NoProfile -STA -File .\Start-BackupGuard.ps1
-```
-
 The wizard walks through the dedicated disk identity, source folders, schedule,
 account and review. It can load an existing configuration, save backed-up edits,
 run read-only preflight, start an explicitly requested test, and register a Windows
@@ -64,11 +89,11 @@ excluded regions make it incomplete, not a guaranteed space requirement.
 
 See [the desktop guide](docs/DESKTOP.md) for setup, diagnostics and acceptance limits.
 
-![Desktop health view with fictional failure history and stale capacity](assets/gui-status.png)
+## Command-line setup (administrators)
 
-The screenshot uses synthetic examples, not a running installation.
-
-## Quick start
+This is an alternative to the Windows app, not a prerequisite for using it.
+Developers who want to build the installer themselves can follow
+[Build from source](docs/DESKTOP.md#build-from-source-developers).
 
 Requirements: Windows with Windows PowerShell 5.1 or PowerShell 7, Robocopy, the
 Storage module, and a dedicated, already formatted USB disk with one data partition

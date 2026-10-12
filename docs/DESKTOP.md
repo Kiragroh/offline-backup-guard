@@ -1,5 +1,29 @@
 # Desktop setup and health
 
+## Install and open the Windows app
+
+Download **Setup.exe** from the assets of a v0.3.0 or later
+[release](https://github.com/Kiragroh/offline-backup-guard/releases/latest), then
+double-click it as your normal Windows user. You do not need to clone this
+repository, compile anything or open a PowerShell terminal.
+
+Setup adds **Offline Backup Guard** to your desktop and Start menu. The installer
+offers startup at sign-in; this starts the tray app, not a backup. Open the app
+from a shortcut to configure your disk, source folders, retention and schedule.
+Installation alone never creates a scheduled backup job.
+
+Closing the window hides it in the system tray. Use the tray menu or either
+shortcut to reopen the same window with unsaved edits intact. Choose **Exit** in
+the tray menu to stop the app; scheduled backup jobs remain independent.
+
+The status screen shows the last attempt and successful backup, repeated
+problems, logs, next run and timestamped storage figures. It reads saved reports
+without mounting your backup disk. The [setup sequence](#setup-sequence) below
+covers first-time configuration and testing.
+
+The installer is currently unsigned. Follow local approval and signing policies;
+do not bypass a Windows or endpoint-protection block.
+
 ## Deployment boundary
 
 The desktop is a local Windows Forms application using Windows PowerShell 5.1.
@@ -14,7 +38,10 @@ never stopped by closing or exiting the app. Windows shutdown is not cancelled
 by the close-to-tray handler; it does not guarantee completion of an active backup.
 Never force-stop a runner without an offline recovery procedure.
 
-## Build and install
+## Build from source (developers)
+
+Skip this section when installing the release's **Setup.exe**. These instructions
+are for contributors who want to compile their own package.
 
 Run from a trusted checkout using Windows PowerShell, without an execution-policy
 bypass. The build reads the repository `VERSION`; .NET Framework's C# compiler,
@@ -122,7 +149,7 @@ responsibilities. A successful wizard is not a security certification.
 
 ## Setup sequence
 
-1. Start `Start-BackupGuard.ps1` in an STA Windows PowerShell session. Select a new
+1. Open **Offline Backup Guard** from the desktop, Start menu or tray. Select a new
    private configuration path, or load an existing PSD1/CSV setup.
 2. Select a dedicated USB disk by serial and reviewed label. No disk is formatted.
    A system/boot disk is never a supported destination.
