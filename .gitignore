@@ -1,0 +1,17 @@
+# Keep operational data and real environment details out of this repository.
+config/*.psd1
+!config/*.example.psd1
+config/*.csv
+!config/*.example.csv
+state/
+logs/
+reports/
+*.log
+*.tmp
+*.zip
+*.bak
+.env*
+__pycache__/
+.pytest_cache/
+canary.txt
+.DS_Store
