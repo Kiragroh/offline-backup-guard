@@ -5,11 +5,11 @@ permissions:
 jobs:
   test:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        shell: [powershell, pwsh]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Parse and test without disk operations
-        shell: ${{ matrix.shell }}
+      - name: Windows PowerShell synthetic tests
+        shell: powershell
+        run: ./tests/Test-BackupGuard.ps1
+      - name: PowerShell Core synthetic tests
+        shell: pwsh
         run: ./tests/Test-BackupGuard.ps1
