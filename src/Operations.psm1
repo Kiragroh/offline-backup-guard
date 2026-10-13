@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'DeferredFiles.psm1')
 
 function Read-GuardJson {
     param([string]$Path)
@@ -31,7 +32,7 @@ function New-GuardRun {
     $id = (Get-Date -Format 'yyyy-MM-dd_HHmmss_fff') + '_' + [guid]::NewGuid().ToString('N').Substring(0,8)
     New-Item -ItemType Directory -Path (Join-Path $root 'runs') -Force | Out-Null
     [ordered]@{
-        schema_version=2; tool_version='0.3.1'; id=$id; kind=$Kind; started_at=(Get-Date).ToString('o'); finished_at=$null
+        schema_version=2; tool_version='0.4.0'; id=$id; kind=$Kind; started_at=(Get-Date).ToString('o'); finished_at=$null
         status='Running'; phase='Initialization'; success=$false; warnings=0; warning_messages=@(); offline=$null
         storage=$null; sources=@(); error=$null; pid=$PID; host_name=$env:COMPUTERNAME
         process_started_at=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')
@@ -175,8 +176,11 @@ function Get-GuardStatus {
             if ($storage) { $storage | Add-Member -NotePropertyName stale -NotePropertyValue (($Now-[datetimeoffset]$storage.measured_at).TotalHours -gt 36) -Force }
         } catch { $readErrors+='Storage history unreadable'; $state='Unknown'; $problem=(@($problem)+$readErrors) -join '; ' }
     }
+    $deferred=Get-GuardDeferredStatus $(if($config){$config.StateRoot}else{''})
+    if(-not $deferred.Valid){$state='Unknown';$problem=$deferred.Error}
+    elseif($state -eq 'Succeeded' -and $deferred.OverdueCount -gt 0){$state='Warning';$problem="$($deferred.OverdueCount) files deferred for at least $($deferred.WarningAfterRuns) affected runs."}
     [pscustomobject]@{
-        State=$state;LastAttempt=$last.started_at;LastSuccess=$success.finished_at;NextRun=$TaskSnapshot.NextRun
+        State=$state;Deferred=$deferred;LastAttempt=$last.started_at;LastSuccess=$success.finished_at;NextRun=$TaskSnapshot.NextRun
         ConsecutiveFailures=$streak;ConsecutiveWarnings=$warningStreak;ProblemSince=$since;Problem=$problem;TaskState=$TaskSnapshot.State
         Drift=@($TaskSnapshot.Drift);Storage=$storage;StorageHistory=@($samples);History=$history;Active=$active;ReportRoot=$reportRoot
         LogRoot=$diag;Overdue=$overdue;LastTaskResult=$TaskSnapshot.LastResult

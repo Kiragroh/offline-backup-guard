@@ -18,3 +18,6 @@ Illustrate a supplemental offline backup workflow, not an impenetrable shield."
 `gui-status.png` and `gui-sources.png` are rendered by the native desktop's
 `-SmokeTest` mode using fictional paths, accounts, disks and run records.
 They contain no production observations.
+
+`gui-deferred.png` was rendered on 2026-10-13 by the same synthetic smoke mode
+for version 0.4.0. The filename, source and seven-run history are fictional.

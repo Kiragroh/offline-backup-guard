@@ -89,7 +89,7 @@ $script:preflightPassed = $false; $script:busy = $null; $script:loading = $false
 $script:diskRows = @(); $script:lastStatus = $null; $script:lastActivePoll=[datetime]::MinValue
 
 $form = New-Object Windows.Forms.Form
-$form.Text = 'Offline Backup Guard 0.3.1'
+$form.Text = 'Offline Backup Guard 0.4.0'
 $form.ClientSize = New-Object Drawing.Size(1160,800)
 $form.MinimumSize = New-Object Drawing.Size(1024,720)
 $form.StartPosition = 'CenterScreen'
@@ -197,7 +197,7 @@ $configPathBox = New-Object Windows.Forms.TextBox; $configPathBox.Dock='Fill'; $
 $pathRow.Controls.Add($pathLabel,0,0); $pathRow.Controls.Add($configPathBox,1,0); $layout.Controls.Add($pathRow,0,1)
 $tabs = New-Object Windows.Forms.TabControl; $tabs.Dock='Fill'; $layout.Controls.Add($tabs,0,2)
 $pages=@{}
-foreach ($name in @('1  Disk','2  Sources','3  Schedule','4  Review','Status')) {
+foreach ($name in @('1  Disk','2  Sources','3  Schedule','4  Review','Status','Deferred files')) {
     $page=New-Object Windows.Forms.TabPage; $page.Text=$name; $page.BackColor=[Drawing.Color]::White; $page.Padding=New-Object Windows.Forms.Padding(10)
     [void]$tabs.TabPages.Add($page); $pages[$name]=$page
 }
@@ -309,7 +309,7 @@ function Add-SourceRow($Source) {
     }
 }
 
-$scheduleTable=New-Table $pages['3  Schedule'] 9
+$scheduleTable=New-Table $pages['3  Schedule'] 10
 $taskName=Add-Field $scheduleTable 0 'Task name' (New-TextBox)
 $taskUser=Add-Field $scheduleTable 1 'Windows account' (New-TextBox)
 $logonMode=New-Object Windows.Forms.ComboBox; $logonMode.DropDownStyle='DropDownList'; [void]$logonMode.Items.AddRange(@('Interactive','Password')); $logonMode.Add_SelectedIndexChanged({Set-Dirty})
@@ -319,9 +319,10 @@ $windowStart=Add-Field $scheduleTable 4 'Allowed start from' (New-TextBox)
 $windowEnd=Add-Field $scheduleTable 5 'Allowed start until' (New-TextBox)
 $threads=Add-Field $scheduleTable 6 'Copy worker count' (New-Number 1 32)
 $retention=Add-Field $scheduleTable 7 'Global legacy retention days' (New-Number 1 36500)
+$deferredThreshold=Add-Field $scheduleTable 8 'Deferred-file warning after runs' (New-Number 1 365)
 $scheduleWarning=New-Object Windows.Forms.Label; $scheduleWarning.Dock='Fill'
 $scheduleWarning.Text="Interactive: the configured user MUST stay logged in at run time.`r`nPassword: credentials are requested only in the approved Windows dialog during task installation. No passwords are saved in configuration files.`r`n`r`nA preflight pass in this session is not acceptance under the scheduled identity. Verify source access, an actual scheduled run, and a separate restore drill before relying on unattended backups."
-[void]$scheduleTable.RowStyles.Add((New-Object Windows.Forms.RowStyle('Percent',100))); $scheduleTable.Controls.Add($scheduleWarning,0,8); $scheduleTable.SetColumnSpan($scheduleWarning,2)
+[void]$scheduleTable.RowStyles.Add((New-Object Windows.Forms.RowStyle('Percent',100))); $scheduleTable.Controls.Add($scheduleWarning,0,9); $scheduleTable.SetColumnSpan($scheduleWarning,2)
 
 $reviewTable=New-Table $pages['4  Review'] 10
 $sourceListPath=Add-Field $reviewTable 0 'Source CSV' (New-TextBox)
@@ -381,6 +382,24 @@ $restorePanel.Controls.Add($restoreLabel,0,1); $restorePanel.SetColumnSpan($rest
 $outputBox=New-Object Windows.Forms.TextBox; $outputBox.Multiline=$true; $outputBox.ReadOnly=$true; $outputBox.ScrollBars='Both'; $outputBox.Dock='Fill'; $outputBox.WordWrap=$false
 $statusLayout.Controls.Add($outputBox,0,5)
 
+$deferredPage=$pages['Deferred files'];$deferredPage.Text='Deferred files (0)'
+$deferredLayout=New-Object Windows.Forms.TableLayoutPanel;$deferredLayout.Dock='Fill';$deferredLayout.ColumnCount=1;$deferredLayout.RowCount=3
+[void]$deferredLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Absolute',45)))
+[void]$deferredLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Percent',100)))
+[void]$deferredLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Absolute',95)))
+$deferredPage.Controls.Add($deferredLayout)
+$deferredHeading=New-Object Windows.Forms.Label;$deferredHeading.Dock='Fill';$deferredHeading.Font=New-Object Drawing.Font('Segoe UI',11,[Drawing.FontStyle]::Bold)
+$deferredLayout.Controls.Add($deferredHeading,0,0)
+$deferredGrid=New-Grid $true
+foreach($column in @(@('SourceName','Source',150),@('RelativePath','File',280),@('Reason','Reason',220),@('ConsecutiveRuns','Affected runs',95),@('FirstSeen','First seen',180),@('LastSeen','Last seen',180))){Add-Column $deferredGrid $column[0] $column[1] $column[2]}
+$deferredLayout.Controls.Add($deferredGrid,0,1)
+$deferredDetail=New-Object Windows.Forms.TextBox;$deferredDetail.Dock='Fill';$deferredDetail.Multiline=$true;$deferredDetail.ReadOnly=$true;$deferredDetail.ScrollBars='Both'
+$deferredLayout.Controls.Add($deferredDetail,0,2)
+$deferredGrid.Add_SelectionChanged({
+    $deferredDetail.Text=''
+    if($deferredGrid.SelectedRows.Count){$item=$deferredGrid.SelectedRows[0].Tag;if($item){$deferredDetail.Text="$($item.SourceName)`r`n$($item.RelativePath)`r`n$($item.Reason) | Windows error $($item.ErrorCode) | Runs: $($item.ConsecutiveRuns)`r`nFirst: $($item.FirstSeen) | Last: $($item.LastSeen)"}}
+})
+
 function Show-StatusDetail([string]$Kind) {
     if(-not $script:lastStatus){Show-Error 'Refresh recorded status first.';return}
     $dialog=New-Object Windows.Forms.Form; $dialog.Text=if($Kind -eq 'Storage'){'Recorded daily storage history'}else{'Recorded source results'}
@@ -411,6 +430,7 @@ function Set-Editor($Config, [object[]]$Sources, [string]$Path) {
         $taskName.Text=$Config.TaskName; $taskUser.Text=$Config.TaskUser; $logonMode.SelectedItem=$Config.TaskLogonType
         $scheduleTime.Text=$Config.ScheduleTime; $windowStart.Text=$Config.WindowStart; $windowEnd.Text=$Config.WindowEnd
         $threads.Value=[decimal]$Config.Threads; $retention.Value=[decimal]$Config.RetentionDays
+        $deferredThreshold.Value=if($Config.ContainsKey('DeferredWarningAfterRuns')){[decimal]$Config.DeferredWarningAfterRuns}else{7}
         $sourceListPath.Text=$Config.SourceListPath; $stateRoot.Text=$Config.StateRoot; $logRoot.Text=$Config.LogRoot; $reportRoot.Text=$Config.ReportRoot
         $canaryPath.Text=$Config.Canary.Path; $ready.Checked=[bool]$Config.ReadyForUse
         $initialize.Checked=$false; $initialize.Enabled=($null -eq $script:previous)
@@ -426,6 +446,7 @@ function Read-Editor {
     $cfg.TaskName=$taskName.Text.Trim(); $cfg.TaskUser=$taskUser.Text.Trim(); $cfg.TaskLogonType=[string]$logonMode.SelectedItem
     $cfg.ScheduleTime=$scheduleTime.Text.Trim(); $cfg.WindowStart=$windowStart.Text.Trim(); $cfg.WindowEnd=$windowEnd.Text.Trim()
     $cfg.Threads=[int]$threads.Value; $cfg.RetentionDays=[int]$retention.Value
+    $cfg.DeferredWarningAfterRuns=[int]$deferredThreshold.Value
     $cfg.SourceListPath=$sourceListPath.Text.Trim(); $cfg.StateRoot=$stateRoot.Text.Trim(); $cfg.LogRoot=$logRoot.Text.Trim(); $cfg.ReportRoot=$reportRoot.Text.Trim()
     $cfg.ReadyForUse=$ready.Checked
     $sources=@(foreach($row in $sourceGrid.Rows) {
@@ -458,7 +479,17 @@ function Set-StatusView($Data) {
     $s=$Data.Status; $script:lastStatus=$s
     Set-TrayHealth ([string]$s.State)
     $statusHeading.Text=[string]$s.State
-    $statusHeading.ForeColor=if($s.State -eq 'Succeeded'){[Drawing.Color]::FromArgb(26,110,67)}else{[Drawing.Color]::FromArgb(164,39,39)}
+    $statusHeading.ForeColor=switch($s.State){'Succeeded'{[Drawing.Color]::FromArgb(26,110,67)} 'Running'{[Drawing.Color]::Black} {$_ -in @('Warning','Needs attention','Missed')}{[Drawing.Color]::DarkGoldenrod} default{[Drawing.Color]::FromArgb(164,39,39)}}
+    $d=$s.Deferred;$count=if($d -and -not $d.Valid){'?'}elseif($d){[string]$d.Count}else{'0'}
+    $deferredPage.Text="Deferred files ($count)";$deferredHeading.Text="$count pending files"
+    if($d){$deferredHeading.Text+=" | $($d.OverdueCount) affected for at least $($d.WarningAfterRuns) runs";if(-not $d.Valid){$deferredHeading.Text=$d.Error}}
+    $statusHeading.Text+=" | $count deferred"
+    $deferredGrid.Rows.Clear()
+    foreach($item in @($d.Entries | Where-Object {$_} | Sort-Object ConsecutiveRuns -Descending)){
+        $i=$deferredGrid.Rows.Add();$deferredGrid.Rows[$i].Tag=$item
+        foreach($column in $deferredGrid.Columns){$deferredGrid.Rows[$i].Cells[$column.Name].Value=[string]$item.($column.Name)}
+    }
+    if($deferredGrid.Rows.Count){$deferredGrid.ClearSelection();$deferredGrid.Rows[0].Selected=$true}
     $latest=@($s.History | Select-Object -First 1)
     $offline='Unknown; no completed confirmation'
     if($latest.Count -and $null -ne $latest[0].offline){$offline="Recorded $($latest[0].offline) at $($latest[0].finished_at)"}
@@ -475,7 +506,7 @@ function Set-StatusView($Data) {
     $restoreLabel.Text=if($Data.Restore){"Restore drill operator record: $($Data.Restore.recorded_at). Not verified by the tool; scheduled identity not accepted."}else{'Restore drill: no operator record. Perform a separate restore; recoverability is not verified.'}
 }
 function Set-Busy([bool]$Busy) {
-    foreach($page in $tabs.TabPages){$page.Enabled=(-not $Busy -or $page.Text -eq 'Status')}
+    foreach($page in $tabs.TabPages){$page.Enabled=(-not $Busy -or $page.Text -eq 'Status' -or $page -eq $deferredPage)}
     $restoreButton.Enabled=-not $Busy
     foreach($item in $toolbar.Items){if($item -is [Windows.Forms.ToolStripButton]){$item.Enabled=-not $Busy}}
     $installButton.Enabled=(-not $Busy -and $script:preflightPassed -and -not $script:dirty)
@@ -603,6 +634,7 @@ $trayMenu=New-Object Windows.Forms.ContextMenuStrip
 $trayStatus=New-Object Windows.Forms.ToolStripMenuItem('Unknown');$trayStatus.Enabled=$false
 [void]$trayMenu.Items.Add($trayStatus)
 $showItem=New-Object Windows.Forms.ToolStripMenuItem('Open Offline Backup Guard');$showItem.Add_Click({Show-DesktopWindow});[void]$trayMenu.Items.Add($showItem)
+$pendingItem=New-Object Windows.Forms.ToolStripMenuItem('Deferred files');$pendingItem.Add_Click({$tabs.SelectedTab=$deferredPage;Show-DesktopWindow});[void]$trayMenu.Items.Add($pendingItem)
 $refreshItem=New-Object Windows.Forms.ToolStripMenuItem('Refresh recorded status');$refreshItem.Add_Click({if(-not $script:busy -and $script:loadedPath){Start-Status -Passive}});[void]$trayMenu.Items.Add($refreshItem)
 [void]$trayMenu.Items.Add((New-Object Windows.Forms.ToolStripSeparator))
 $exitItem=New-Object Windows.Forms.ToolStripMenuItem('Exit');$exitItem.Add_Click({$script:explicitExit=$true;$form.Close()});[void]$trayMenu.Items.Add($exitItem)
@@ -633,13 +665,27 @@ if($SmokeTest){
     $script:lastStatus | Add-Member -NotePropertyName ConsecutiveWarnings -NotePropertyValue 1
     $history[0] | Add-Member -NotePropertyName sources -NotePropertyValue @([pscustomobject]@{name='Example documents';success=$false;archived_files=3;locked_at_preflight=1;pruned_files=0;error='Example source unavailable'})
     Set-StatusView ([pscustomobject]@{Status=$script:lastStatus;Restore=$null})
+    $entry=[pscustomobject]@{SourceName='Example documents';RelativePath='analysis\measurements.csv';Reason='File is locked by another process';ErrorCode=32;ConsecutiveRuns=6;FirstSeen='2026-01-01T02:00:00';LastSeen='2026-01-06T02:00:00'}
+    $script:lastStatus | Add-Member -NotePropertyName Deferred -NotePropertyValue ([pscustomobject]@{Valid=$true;Count=1;OverdueCount=0;WarningAfterRuns=7;Entries=@($entry)})
+    $script:lastStatus.State='Succeeded'
+    Set-StatusView ([pscustomobject]@{Status=$script:lastStatus;Restore=$null})
+    if($deferredPage.Text -ne 'Deferred files (1)' -or $deferredGrid.Rows.Count -ne 1 -or $statusHeading.ForeColor -ne [Drawing.Color]::FromArgb(26,110,67)){throw 'Pending file count or green status not rendered.'}
+    $entry.ConsecutiveRuns=7;$script:lastStatus.Deferred.OverdueCount=1;$script:lastStatus.State='Warning'
+    $script:lastStatus.Drift=@();$script:lastStatus.ConsecutiveFailures=0;$script:lastStatus.LastTaskResult=0
+    $script:lastStatus.Problem='One individual file has remained pending for seven affected runs.'
+    $script:lastStatus.LastAttempt='2026-01-06T02:00:00';$script:lastStatus.LastSuccess='2026-01-06T02:20:00'
+    $history[0].status='Warning';$history[0].phase='Offline';$history[0].error='';$history[0].started_at='2026-01-06T02:00:00';$history[0].finished_at='2026-01-06T02:20:00'
+    $script:lastStatus.Storage.measured_at='2026-01-06T02:19:00';$script:lastStatus.Storage.stale=$false
+    Set-StatusView ([pscustomobject]@{Status=$script:lastStatus;Restore=$null})
+    if($statusHeading.ForeColor -ne [Drawing.Color]::DarkGoldenrod -or $deferredDetail.Text -notmatch 'measurements.csv'){throw 'Seven-run warning or full file details not rendered.'}
+    if((Read-Editor).Config.DeferredWarningAfterRuns -ne 7){throw 'Deferred threshold did not round trip through the editor.'}
     $outputBox.Text='SYNTHETIC SMOKE DATA. No disk enumeration, mount, runner invocation, task change or configuration write.'
     $activity.Text='Smoke test: rendered controls with synthetic data only.'
     if(-not $ScreenshotPath){$ScreenshotPath=Join-Path ([IO.Path]::GetTempPath()) ('backup-guard-smoke-'+[guid]::NewGuid().ToString('N')+'.png')}
     $ScreenshotPath=[IO.Path]::GetFullPath($ScreenshotPath)
     if(-not (Test-Path -LiteralPath (Split-Path $ScreenshotPath -Parent) -PathType Container)){throw 'Screenshot parent directory must already exist.'}
     $form.Show(); [Windows.Forms.Application]::DoEvents()
-    foreach($index in @(0,1,2,3,4)){
+    foreach($index in @(0,1,2,3,4,5)){
         $tabs.SelectedIndex=$index; $form.Refresh(); [Windows.Forms.Application]::DoEvents()
         $bitmap=New-Object Drawing.Bitmap($form.Width,$form.Height)
         try{

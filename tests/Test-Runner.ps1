@@ -6,7 +6,7 @@ $passed=0
 function Check($condition,$message){if(-not $condition){throw $message};$script:passed++;Write-Output "PASS $message"}
 $oldCase=$env:GUARD_TEST_CASE;$oldTrace=$env:GUARD_TEST_TRACE;$oldSource=$env:GUARD_TEST_SOURCE
 try {
-    foreach($name in 'Run-Backup.ps1','Operations.psm1','Reporting.psm1'){Copy-Item -LiteralPath (Join-Path $root "src\$name") -Destination "$temp\src\$name"}
+    foreach($name in 'Run-Backup.ps1','Operations.psm1','Reporting.psm1','DeferredFiles.psm1'){Copy-Item -LiteralPath (Join-Path $root "src\$name") -Destination "$temp\src\$name"}
     Copy-Item -LiteralPath "$PSScriptRoot\fixtures\BackupGuard.psm1","$PSScriptRoot\fixtures\Versioning.psm1" -Destination "$temp\src"
     Import-Module "$temp\src\Operations.psm1" -Force
     $env:GUARD_TEST_SOURCE="$temp\source"
@@ -45,7 +45,7 @@ BackupDisk=@{SerialNumber='synthetic';VolumeLabel='TEST';PreferredAccessPath='$e
         if($case -eq 'offline') { Check ($run.offline -eq $false -and $run.error -match 'offline') 'Offline failure cannot look successful' }
         if($case -eq 'copy') { Check ($run.offline -eq $true -and $run.sources[0].error -match 'read denied') 'Copy failure preserves source reason and offline confirmation' }
         if($case -eq 'mount') { Check ($run.failure_phase -eq 'Mount' -and $run.phase -eq 'Mount' -and $run.offline) 'Cleanup does not overwrite initiating mount failure phase' }
-        if($case -eq 'late-lock') { Check ($run.status -eq 'Warning' -and $run.sources[0].locked_at_copy -eq 1 -and $trace -notmatch 'retention') 'Late sharing locks remain visible and defer retention' }
+        if($case -eq 'late-lock') { Check ($run.status -eq 'Succeeded' -and $run.sources[0].deferred_files -eq 1 -and $trace -notmatch 'retention') 'First late sharing lock stays healthy, visible and defers retention' }
     }
     Write-Output "All $passed runner checks passed with test doubles only."
 } finally {

@@ -53,10 +53,10 @@ function Publish-BackupReport {
         $age = ([DateTimeOffset]::Parse($Run.finished_at) - [DateTimeOffset]::Parse($latestStorage.measured_at)).TotalHours
         $lines += "Storage sample stale (over 36 hours): $($age -gt 36)"
     } else { $lines += 'Storage: not measured. No estimate available.' }
-    $lines += @('', '| Source | Completed | Previous files retained | Locked at preflight | Locked during copy | Expired recovery files deleted |', '| --- | --- | ---: | ---: | ---: | ---: |')
+    $lines += @('', '| Source | Completed | Previous files retained | Deferred files | Repeated deferrals needing review | Expired recovery files deleted |', '| --- | --- | ---: | ---: | ---: | ---: |')
     foreach ($source in $Run.sources) {
         $label = ([string]$source.name).Replace('|','/').Replace("`n",' ').Replace("`r",' ')
-        $lines += "| $label | $($source.success) | $($source.archived_files) | $($source.locked_at_preflight) | $($source.locked_at_copy) | $($source.retention_deleted_files) |"
+        $lines += "| $label | $($source.success) | $($source.archived_files) | $($source.deferred_files) | $($source.deferred_overdue) | $($source.retention_deleted_files) |"
     }
     $lines += @('', 'Unknown counters are blank. Robocopy diagnostics remain in private local logs.', 'A successful copy is not proof of application-consistent recovery.', 'No refresh or mount is performed when reading this report.', '')
     Write-AtomicReport -Path (Join-Path $ReportRoot 'latest.md') -Content ($lines -join "`n")

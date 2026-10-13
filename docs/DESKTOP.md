@@ -21,6 +21,26 @@ problems, logs, next run and timestamped storage figures. It reads saved reports
 without mounting your backup disk. The [setup sequence](#setup-sequence) below
 covers first-time configuration and testing.
 
+## Deferred files
+
+The **Deferred files (count)** tab and tray entry show individual files that could
+not be updated, their reason, first/last observation and consecutive affected-run
+count. Select a row for full details. The Status heading keeps the count visible.
+These records remain readable when the backup disk is offline.
+
+In **3 Schedule**, **Deferred-file warning after runs** defaults to seven. Runs
+one through six stay green when nothing else requires attention; the seventh
+affected run of the same file warns. A successful retry removes its pending entry.
+This threshold is also stored as `DeferredWarningAfterRuns` in the private PSD1.
+Changing it never converts historical failed runs into successes.
+
+Directory failures, disk corruption/full disk, canary failures, interrupted jobs
+and failed offline transitions still need attention immediately. A completed run
+with pending files does not mean every file is current. See
+[recovery diagnostics](RECOVERY-DIAGNOSTICS.md) for filesystem-repair boundaries.
+
+![Deferred files using fictional data](../assets/gui-deferred.png)
+
 The installer is currently unsigned. Follow local approval and signing policies;
 do not bypass a Windows or endpoint-protection block.
 

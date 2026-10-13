@@ -29,5 +29,5 @@ foreach($name in @('app','unknown','success','running','warning','error')){
     Check ([BitConverter]::ToUInt16($bytes,4) -eq 7 -and ($sizes -join ',') -eq '16,24,32,48,64,128,256') "Seven native icon resolutions: $name"
 }
 & powershell.exe -NoProfile -STA -File (Join-Path $root 'Start-BackupGuard.ps1') -SmokeTest -ScreenshotPath (Join-Path $ScreenshotDirectory 'desktop.png')
-Check ($LASTEXITCODE -eq 0) 'Real Windows Forms synthetic lifecycle and five screenshots pass'
-Check (@(Get-ChildItem -LiteralPath $ScreenshotDirectory -Filter '*.png').Count -ge 5) 'All editor/status screenshots exist'
+Check ($LASTEXITCODE -eq 0) 'Real Windows Forms synthetic lifecycle and six screenshots pass'
+Check ((Test-Path -LiteralPath (Join-Path $ScreenshotDirectory 'desktop.tab5.png')) -and @(Get-ChildItem -LiteralPath $ScreenshotDirectory -Filter '*.png').Count -ge 6) 'All editor/status/deferred screenshots exist'

@@ -46,13 +46,25 @@ Do not update the reference hash to silence the failure. Preserve evidence and a
 the incident owner to review the source and host. No mount is attempted after a
 failed global preflight. An unchanged canary does not certify any other file.
 
-## Locked files and failed sources
+## Deferred files and failed sources
 
 Sharing locks detected on changed source files are excluded only for that run,
 including their corresponding target paths. Their older backup copy is retained.
-The next run tries again. File sharing/locking diagnostics 32/33 during Robocopy are
-warnings only when the diagnostic set contains no other error. Other I/O errors are
-failures. A partial source failure does not prevent unrelated sources from being
+The next run tries again. Recognized individual file-copy errors 2/3 (disappeared),
+5 (file access denied), and 32/33 (sharing/locking) are recorded in the private
+`StateRoot/deferred-files.json`. A mixed diagnostic set containing other errors,
+directory/root failures, unknown diagnostics or fatal Robocopy codes stays fatal.
+The raw Robocopy exit code remains in each source result.
+
+Each unresolved file records first/last occurrence and consecutive affected runs.
+An otherwise completed run stays green below `DeferredWarningAfterRuns` (default
+7, permitted range 1-365). At the threshold, the run/status becomes yellow.
+Retries within one run do not increment the count. Successful catch-up clears the
+entry; a failed component does not clear unobserved pending entries. An unreadable
+ledger blocks preflight and is never reported as an empty healthy list. A green
+run with pending files is not a claim that every file has been updated.
+
+A partial source failure does not prevent unrelated sources from being
 attempted, but the overall run returns exit code 1. All canaries are rechecked per
 source; a changing source can still be inconsistent without a snapshot or export.
 
@@ -72,8 +84,8 @@ history protects older recovery copies of a now-absent file until that protectio
 expires; timestamp ties and uncertain metadata may retain additional copies.
 There is no promise that total disk usage equals exactly N versions per file.
 
-Retention cleanup runs only after a successful source pass without sharing-lock
-warnings. Reparse points other than the explicitly validated volume mount, unknown
+Retention cleanup runs only after a successful source pass without deferred
+files. Reparse points other than the explicitly validated volume mount, unknown
 timestamps, unindexed files and malformed manifests defer cleanup with a visible
 warning. Do not modify quarantine/manifests manually. Reducing a policy can remove
 previously retained files on a later successful run; the wizard requires consent.

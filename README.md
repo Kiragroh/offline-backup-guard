@@ -59,8 +59,10 @@ maps, production configurations, credentials, or operational records in this rep
 - Matches a dedicated USB disk by serial number; rejects system and boot disks.
 - Uses Robocopy for incremental file copies; per-source mirroring is optional.
 - Retains previous destination files before planned replacement or deletion.
-- Skips preflight-detected sharing locks for that run; retries them next run.
-- Keeps non-lock I/O errors fatal and enforces optional deletion-count limits.
+- Defers recognized individual unavailable/locked files and retries next run.
+- Shows pending files separately; warns after seven consecutive affected runs.
+- Keeps directory, canary, disk-full, corruption and unknown errors fatal, and
+  enforces optional deletion-count limits.
 - Attempts to offline the disk in `finally`, including failed copy runs.
 - Writes local JSON/Markdown reports with capacity, remaining space, timestamps,
   per-source results and retained-file counts; at most one storage point per day.
@@ -88,6 +90,21 @@ capacity. A manual size estimate reads only the selected sources; unreadable or
 excluded regions make it incomplete, not a guaranteed space requirement.
 
 See [the desktop guide](docs/DESKTOP.md) for setup, diagnostics and acceptance limits.
+
+### Pending files without unnecessary alarms
+
+**Deferred files (count)** lists the source, relative file path, reason, first and
+last occurrence, and affected-run count. A completed backup stays green for the
+first six affected runs of an individual file. From the seventh it becomes yellow;
+the default can be changed with `DeferredWarningAfterRuns` in the private config.
+Files disappear from the list after a successful catch-up. The view reads local
+state and remains available while the backup disk is offline.
+
+Only recognized individual file errors 2, 3, 5, 32 and 33 qualify. A missing source
+folder, directory access failure, failed canary, full/corrupt disk or interrupted
+job is not treated as a harmless deferral. Green with pending files means the job
+completed with listed omissions, **not that every file is current**. Recovery-file
+pruning is postponed for affected sources. Historical failed runs stay failed.
 
 ## Command-line setup (administrators)
 
@@ -143,6 +160,7 @@ Unreviewed mass changes can still damage a backup: keep an independent recovery 
 | `BackupDisk` | Exact USB identity, expected volume label, dedicated mount folder |
 | `RetentionDays` | How long previous destination files remain in quarantine |
 | `Threads` | Robocopy workers, 1-32; start with 8 |
+| `DeferredWarningAfterRuns` | Warn after this many affected runs of one file; default 7 |
 | `ReportRoot`, `LogRoot` | Private locations outside the offline volume |
 
 The disk contains `OfflineBackupGuard/Current/<alias>` and
@@ -171,7 +189,7 @@ versions does not turn off deleted-file protection when mirroring is enabled.
 A blank `PreviousVersions` preserves the original time-based `RetentionDays`
 policy for existing configurations. Settings are not silently migrated. The GUI
 requires confirmation before reductions. Pruning happens after successful copying,
-not when you save settings; sharing-lock warnings defer pruning for that source.
+not when you save settings; pending files defer pruning for that source.
 Deleted-file protection, ambiguous timestamps or unsafe metadata may retain more
 than the selected count. Retention warnings are visible and never silently ignored.
 See [retention and recovery details](docs/OPERATIONS.md#retention-and-space).

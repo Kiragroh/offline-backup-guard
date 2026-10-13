@@ -1,5 +1,7 @@
 ﻿$ErrorActionPreference = "Stop"
 
+Import-Module (Join-Path $PSScriptRoot 'DeferredFiles.psm1')
+
 function Test-BackupCanary {
     [CmdletBinding()]
     param(
@@ -1186,7 +1188,8 @@ function Invoke-RobocopyChecked {
         [Parameter(Mandatory = $true)]
         [string[]] $Arguments,
         [object] $PreviewSummary = $null,
-        [switch] $PassThruResult
+        [switch] $PassThruResult,
+        [hashtable] $DeferredContext
     )
 
     $errors = [System.Collections.Generic.List[string]]::new()
@@ -1203,8 +1206,12 @@ function Invoke-RobocopyChecked {
     $actualExitCode = $exitCode
     $locked = 0
     if (-not (Test-RobocopyExitCode -ExitCode $exitCode)) {
+        $deferred=Test-GuardDeferredErrors -Lines $errors.ToArray() -ExitCode $exitCode -Context $DeferredContext -Stage Copy
         $locked = Get-RobocopyLockOnlyCount -OutputLines $errors.ToArray() -ExitCode $exitCode
-        if ($locked -eq 0) { throw "Robocopy failed with exit code $exitCode." }
+        if (-not $deferred -and ($DeferredContext -or $locked -eq 0)) {
+            $codes=@($errors | ForEach-Object {if($_ -match '(?i)\b(?:ERROR|FEHLER)\s+(\d+)\s+\(0x') {[int]$Matches[1]}} | Sort-Object -Unique)
+            throw "Robocopy failed with exit code $exitCode. NativeErrorCodes=$($codes -join ',')."
+        }
         $exitCode = $exitCode -band 7
     }
     $lockedAtCopy = $locked
@@ -1230,7 +1237,8 @@ function Invoke-RobocopyPreview {
         [Parameter(Mandatory = $true)]
         [string] $LogPath,
 
-        [switch] $SuppressDetailedOutput
+        [switch] $SuppressDetailedOutput,
+        [hashtable] $DeferredContext
     )
 
     $previewArgs = @($Arguments | Where-Object {
@@ -1255,12 +1263,22 @@ function Invoke-RobocopyPreview {
     Add-Content -LiteralPath $LogPath -Value "----- ROBOCOPY PREVIEW END -----" -Encoding UTF8
 
     if (-not (Test-RobocopyExitCode -ExitCode $exitCode)) {
+        $errors=@($output | Where-Object {$_ -match '(?i)\b(?:ERROR|FEHLER)\s+\d+\s+\(0x[0-9a-f]+\)'})
+        $deferred=Test-GuardDeferredErrors -Lines $errors -ExitCode $exitCode -Context $DeferredContext -Stage Preview
         $locked = Get-RobocopyLockOnlyCount -OutputLines $output -ExitCode $exitCode
-        if ($locked -eq 0) { throw "Robocopy preview failed with exit code $exitCode." }
-        Write-BackupAirLog -Path $LogPath -Message "WARNING: Robocopy preview contains $locked locked files; unlocked files will continue."
+        if (-not $deferred -and ($DeferredContext -or $locked -eq 0)) {
+            $codes=@($errors | ForEach-Object {if($_ -match '(?i)\b(?:ERROR|FEHLER)\s+(\d+)\s+\(0x') {[int]$Matches[1]}} | Sort-Object -Unique)
+            if(-not $codes.Count){
+                $diagnosticArgs=@($previewArgs | Where-Object {$_ -notmatch '(?i)^/MT(?::\d+)?$'})
+                $diagnostic=@(& robocopy.exe @diagnosticArgs /R:0 /W:0)
+                $codes=@($diagnostic | ForEach-Object {if($_ -match '(?i)\b(?:ERROR|FEHLER)\s+(\d+)\s+\(0x') {[int]$Matches[1]}} | Sort-Object -Unique)
+            }
+            throw "Robocopy preview failed with exit code $exitCode. NativeErrorCodes=$($codes -join ',')."
+        }
     }
 
     $lockedPaths = [System.Collections.Generic.List[string]]::new()
+    foreach($excludedPath in @(Get-GuardDeferredExclusions $DeferredContext)){$lockedPaths.Add($excludedPath)}
     $checkedPaths = @{}
     $usable = foreach ($line in $output) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -1276,7 +1294,9 @@ function Invoke-RobocopyPreview {
                 catch {
                     $exception = $_.Exception
                     while ($exception.InnerException) { $exception = $exception.InnerException }
-                    if (($exception.HResult -band 65535) -notin @(32, 33)) { throw }
+                    $code=$exception.HResult -band 65535
+                    if($DeferredContext -and $code -in @(2,3,5,32,33)){Add-GuardDeferredFile $DeferredContext $path $code Preflight}
+                    elseif($code -notin @(32,33)){throw}
                     $lockedPaths.Add($path)
                     $lockedPaths.Add((Join-Path $Arguments[1] $relative))
                 }

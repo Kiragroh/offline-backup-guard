@@ -44,7 +44,7 @@ function New-GuardSetupConfiguration {
     @{
         ReadyForUse = $false; SourceListPath = (Join-Path $directory 'sources.csv')
         StateRoot = (Join-Path $directory 'state'); LogRoot = (Join-Path $directory 'logs'); ReportRoot = (Join-Path $directory 'reports')
-        WindowStart = '02:00'; WindowEnd = '06:00'; RetentionDays = 30; Threads = 8
+        WindowStart = '02:00'; WindowEnd = '06:00'; RetentionDays = 30; Threads = 8; DeferredWarningAfterRuns = 7
         Canary = @{ Path = (Join-Path $directory 'canary.txt'); ExpectedText = $text; ExpectedSha256 = (Get-GuardTextHash $text) }
         BackupDisk = @{ FriendlyName = ''; SerialNumber = ''; VolumeLabel = 'OFFLINE_BACKUP'; PreferredAccessPath = (Join-Path $env:SystemDrive 'OfflineBackup') }
         TaskName = 'OfflineBackupGuard'; ScheduleTime = '02:00'; TaskUser = $TaskUser; TaskLogonType = 'Interactive'
@@ -114,6 +114,7 @@ function Test-GuardSetupConfiguration {
     if ([string]::IsNullOrWhiteSpace($Config.TaskUser)) { throw 'Specify the Windows task account.' }
     if ($Config.TaskName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_. -]{0,99}$') { throw 'Use a simple task name (letters, numbers, spaces, dot, dash or underscore).' }
     if ($Config.Contains('TaskPowerShellPath') -and $Config.TaskPowerShellPath -and -not (Test-GuardAbsolutePath $Config.TaskPowerShellPath)) { throw 'TaskPowerShellPath must be absolute.' }
+    if($Config.ContainsKey('DeferredWarningAfterRuns') -and ($Config.DeferredWarningAfterRuns -notmatch '^\d+$' -or $Config.DeferredWarningAfterRuns -lt 1 -or $Config.DeferredWarningAfterRuns -gt 365)){throw 'DeferredWarningAfterRuns must be between 1 and 365.'}
     foreach ($item in @(@('Threads',1,32), @('RetentionDays',1,36500))) {
         $n = 0
         if (-not [int]::TryParse([string]$Config[$item[0]], [ref]$n) -or $n -lt $item[1] -or $n -gt $item[2]) { throw "Invalid $($item[0])." }

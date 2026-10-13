@@ -10,6 +10,7 @@ Import-Module (Join-Path $PSScriptRoot 'BackupGuard.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Reporting.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Operations.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Versioning.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'DeferredFiles.psm1')
 $config = $null
 
 function Assert-Configuration {
@@ -18,6 +19,8 @@ function Assert-Configuration {
         if (-not [IO.Path]::IsPathRooted($config[$key])) { throw "Absolute path required: $key" }
     }
     if ($config.Threads -lt 1 -or $config.Threads -gt 32 -or $config.RetentionDays -lt 1) { throw 'Invalid thread count or retention period.' }
+    if($config.ContainsKey('DeferredWarningAfterRuns') -and ($config.DeferredWarningAfterRuns -notmatch '^\d+$' -or $config.DeferredWarningAfterRuns -lt 1 -or $config.DeferredWarningAfterRuns -gt 365)){throw 'DeferredWarningAfterRuns must be between 1 and 365.'}
+    if(-not (Get-GuardDeferredStatus $config.StateRoot).Valid){throw 'Deferred-file ledger is unreadable. No disk changes made.'}
     if ($config.Canary.ExpectedSha256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Pin a trusted canary SHA256 first.' }
     if ([string]::IsNullOrWhiteSpace($config.BackupDisk.VolumeLabel)) { throw 'A volume label is required.' }
     if (-not [IO.Path]::IsPathRooted($config.BackupDisk.PreferredAccessPath)) { throw 'Use an absolute mount folder.' }
@@ -88,14 +91,17 @@ try {
         $root = Join-Path $mount 'OfflineBackupGuard'
         $quarantine = Join-Path $root 'Quarantine'
         foreach ($source in $sources) {
+            $deferredContext=$null
             try {
                 Write-GuardEvent $run 'Source preflight' 'Checking source canary.' 'Information' $source.Name
                 Test-BackupSourceCanary -Source $source | Out-Null
                 $dest = Get-BackupMirrorPath -DestinationRoot $root -Source $source
+                $threshold=if($config.ContainsKey('DeferredWarningAfterRuns')){[int]$config.DeferredWarningAfterRuns}else{7}
+                $deferredContext=New-GuardDeferredContext -StateRoot $config.StateRoot -RunId $id -Name $source.Name -SourcePath $source.SourcePath -DestinationPath $dest -WarningAfterRuns $threshold
                 New-Item -ItemType Directory -Path $dest -Force | Out-Null
                 $copyArgs = Get-RobocopyArguments -SourcePath $source.SourcePath -DestinationPath $dest -LogPath $log -MirrorDeletes:$source.MirrorDeletes -ExtraArgs @('/COPY:DAT','/DCOPY:DAT','/FFT','/XJ','/NP','/R:0','/W:0',"/MT:$($config.Threads)",'/XF','backup-manifest.json')
                 Write-GuardEvent $run 'Preview' 'Scanning changes and sharing locks.' 'Information' $source.Name
-                $preview = Invoke-RobocopyPreview -Arguments $copyArgs -LogPath $log
+                $preview = Invoke-RobocopyPreview -Arguments $copyArgs -LogPath $log -DeferredContext $deferredContext
                 Assert-RobocopyPreviewPolicy -Source $source -Summary $preview | Out-Null
                 $archived = 0
                 if ($preview.ChangedLines -gt 0) {
@@ -105,15 +111,17 @@ try {
                     $archived = $retained.ArchivedFiles
                 }
                 Write-GuardEvent $run 'Copy' 'Robocopy is running; progress is in the Robocopy log.' 'Information' $source.Name
-                $copyResult = Invoke-RobocopyChecked -Arguments $copyArgs -PreviewSummary $preview -PassThruResult
+                $copyResult = Invoke-RobocopyChecked -Arguments $copyArgs -PreviewSummary $preview -PassThruResult -DeferredContext $deferredContext
+                $pending=Save-GuardDeferredComponent $deferredContext $true
                 $exitCode = $copyResult.ExitCode
-                $locks=[int]($preview.LockedPaths.Count / 2)
-                if ($locks -gt 0 -or $exitCode -ge 8) {
-                    $run.warnings++
-                    Write-GuardEvent $run 'Copy warning' 'Sharing locks skipped; previous copies remain. Review Robocopy log and retry next run.' 'Warning' $source.Name
+                $locks=@($deferredContext.Items.Values | Where-Object {$_.ErrorCode -in @(32,33) -and $_.Stage -ne 'Copy'}).Count
+                if ($pending.Count -gt 0) {
+                    $level='Information'
+                    if($pending.OverdueCount -gt 0){$run.warnings++;$level='Warning'}
+                    Write-GuardEvent $run 'Deferred files' "$($pending.Count) individual files deferred; $($pending.OverdueCount) affected for at least $threshold runs. Retry next run." $level $source.Name
                 }
                 $expired=[pscustomobject]@{RemovedFiles=0;RemovedBytes=0}
-                if ($locks -eq 0 -and $exitCode -lt 8) {
+                if ($pending.Count -eq 0 -and $copyResult.NormalizedExitCode -lt 8) {
                     Write-GuardEvent $run 'Retention' 'Applying this source retention policy after successful copy.' 'Information' $source.Name
                     $expired=Invoke-GuardRetention -QuarantineRoot $quarantine -Source $source -DestinationPath $dest -DefaultRetentionDays $config.RetentionDays -TrustedMountPath $mount
                     if ($expired.SkippedReason) {
@@ -121,13 +129,15 @@ try {
                         Write-GuardEvent $run 'Retention deferred' $expired.SkippedReason 'Warning' $source.Name
                     }
                 } else {
-                    Write-GuardEvent $run 'Retention deferred' 'Recovery copies retained because this source has sharing-lock warnings.' 'Warning' $source.Name
+                    Write-GuardEvent $run 'Retention deferred' 'Recovery copies retained because this source has deferred files.' 'Information' $source.Name
                 }
-                $run.sources += [ordered]@{ name=$source.Name; success=$true; robocopy_exit=$exitCode; archived_files=$archived; locked_at_preflight=$locks; locked_at_copy=$copyResult.LockedAtCopy; retention_deleted_files=$expired.RemovedFiles; retention_deleted_bytes=$expired.RemovedBytes; previous_versions=$source.PreviousVersions }
+                $run.sources += [ordered]@{ name=$source.Name; success=$true; robocopy_exit=$exitCode; deferred_files=$pending.Count; deferred_overdue=$pending.OverdueCount; archived_files=$archived; locked_at_preflight=$locks; locked_at_copy=$copyResult.LockedAtCopy; retention_deleted_files=$expired.RemovedFiles; retention_deleted_bytes=$expired.RemovedBytes; previous_versions=$source.PreviousVersions }
             } catch {
-                Write-BackupAirLog -Path $log -Message $_.Exception.Message
-                Write-GuardEvent $run $run.phase $_.Exception.Message 'Error' $source.Name
-                $run.sources += [ordered]@{ name=$source.Name; success=$false; phase=$run.phase; error=$_.Exception.Message }
+                $sourceError=$_.Exception.Message
+                if($deferredContext){Save-GuardDeferredComponent $deferredContext $false | Out-Null}
+                Write-BackupAirLog -Path $log -Message $sourceError
+                Write-GuardEvent $run $run.phase $sourceError 'Error' $source.Name
+                $run.sources += [ordered]@{ name=$source.Name; success=$false; phase=$run.phase; error=$sourceError }
             }
         }
         $run.success = @($run.sources | Where-Object { -not $_.success }).Count -eq 0

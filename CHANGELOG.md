@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0 - 2026-10-13
+
+- Added a counted Deferred files tab and tray entry, with full file details,
+  reasons, first/last occurrence and consecutive affected-run counts.
+- Recognized individual file-copy errors 2/3/5/32/33 retry next run. Completed
+  runs stay healthy for the first six affected runs; default warning threshold
+  is seven and can be configured. Recovered entries clear automatically.
+- Directory/root failures, unknown/mixed errors, canary failures, disk corruption,
+  disk-full errors and offline failures remain failures. Recovery pruning is
+  postponed for sources with pending files. Raw copy results remain recorded.
+- Added native error-code diagnostics and a serial list-only fallback for opaque
+  preview failures. No automatic filesystem repair or policy bypass is included.
+- Added synthetic lock/recovery, ledger persistence, health threshold, runner,
+  diagnostic and desktop tests. Examples and screenshots remain fictional.
+
 ## 0.3.1 - 2026-10-12
 
 - Recover safely when installation is interrupted immediately after creating its

@@ -22,5 +22,6 @@
         PreferredAccessPath = 'C:\OfflineBackup'
     }
     RetentionDays = 30
+    DeferredWarningAfterRuns = 7
     Threads = 8
 }
