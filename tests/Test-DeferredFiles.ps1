@@ -32,6 +32,14 @@ try{
     $ctx=Context 'mixed'
     Check (-not (Test-GuardDeferredErrors @("ERROR 32 (0x00000020) Copying File $temp\source\file.txt","ERROR 112 (0x00000070) Copying File $temp\source\full.txt") 11 $ctx Copy) -and $ctx.Items.Count -eq 0) 'Mixed error batch is not partially accepted'
     Check (-not (Test-GuardDeferredErrors @("ERROR 32 (0x00000020) Copying File $temp\source\file.txt") 16 $ctx Copy)) 'Fatal Robocopy result never normalizes'
+    $ctx=Context 'reserved'
+    Check (Test-GuardDeferredErrors @("ERROR 5 (0x00000005) Copying File $temp\target\archive\nul") 8 $ctx Copy) 'Reserved name stays a literal child path, not a DOS device'
+    Check ($ctx.Items.Values[0].Reason -match 'Reserved Windows filename') 'Reserved name has a specific reason rather than a claimed sharing lock'
+    foreach($relative in @('..\outside.txt','sub\..\outside.txt','file.txt:stream','sub\\file.txt')){
+        $rejected=$false
+        try{Add-GuardDeferredFile (Context 'unsafe') "$temp\source\$relative" 5 Copy}catch{$rejected=$true}
+        Check $rejected 'Unsafe deferred path is rejected'
+    }
     [IO.File]::WriteAllText("$temp\source\file.txt",'new contents')
     [IO.File]::WriteAllText("$temp\target\file.txt",'previous backup')
     [IO.File]::SetLastWriteTimeUtc("$temp\target\file.txt",[datetime]::UtcNow.AddDays(-2))
@@ -41,6 +49,7 @@ try{
         $ctx=Context 'real-lock'
         $preview=Invoke-RobocopyPreview $argsCopy "$temp\copy.log" -DeferredContext $ctx
         Invoke-RobocopyChecked $argsCopy -PreviewSummary $preview -DeferredContext $ctx | Out-Null
+        Check ($ctx.Measurement.InventoryComplete -and $ctx.Measurement.NotUpdated -eq 1 -and $ctx.Measurement.Files.Total -eq 1) 'Real preflight exclusion is included once in measured total and pending count'
         Save-GuardDeferredComponent $ctx $true | Out-Null
         Check ((Get-GuardDeferredStatus "$temp\state").Count -eq 1 -and [IO.File]::ReadAllText("$temp\target\file.txt") -eq 'previous backup') 'Real locked source preserves old destination and records pending file'
     }finally{$handle.Dispose()}
@@ -50,7 +59,7 @@ try{
     Check ((Get-GuardDeferredStatus "$temp\state").Count -eq 0 -and [IO.File]::ReadAllText("$temp\target\file.txt") -eq 'new contents') 'Real next run catches up and clears pending file'
     $cfg=Join-Path $temp 'backup.psd1'
     [IO.File]::WriteAllText($cfg,"@{ StateRoot='$($temp.Replace("'","''"))\state'; ReportRoot='$($temp.Replace("'","''"))\reports' }")
-    $run=New-GuardRun $cfg;$run.success=$true;Complete-GuardRun $run
+    $run=New-GuardRun $cfg;$run.success=$true;$run.offline=$true;Complete-GuardRun $run
     $task=[pscustomobject]@{Drift=@();State='Ready';LastResult=0;NextRun=$null}
     foreach($n in 1..7){
         $ctx=Context "health-$n";Add-GuardDeferredFile $ctx "$temp\source\file.txt" 5 Copy;Save-GuardDeferredComponent $ctx $true | Out-Null

@@ -200,8 +200,8 @@ it never triggers disk mounting or pruning from the GUI itself.
 | Signal | Interpretation |
 | --- | --- |
 | Succeeded | Runner completed and confirmed disk offline at that time, not a restore guarantee |
-| Warning | Copy completed with skipped locks, low free space or deferred retention; review details |
-| Failed | Recorded error; the source/stage and message explain where it failed |
+| Warning | Persistent pending files, measured localized copy failure, low free space or deferred retention; review details |
+| Failed | Widespread, unknown or safety-critical failure; source/stage and native details explain where it failed |
 | Interrupted | An unfinished record has no matching PID and process-start time; offline state is unconfirmed |
 | Missed | No start for the expected daily run after a two-hour grace period |
 | Needs attention | Task drift, an unmatched scheduler failure or an overlong runner needs investigation |
@@ -221,6 +221,14 @@ that cannot start PowerShell cannot write a runner log; inspect the scheduler
 result and Task Scheduler Operational history for credentials or policy errors.
 
 ## Logs and reports
+
+Open **Copy details**, choose a run, then select a source. The table shows actual
+copy counts and the pending proportion when measurable. The lower pane shows the
+execution account, endpoints, operation and native errors. **Deferred files (count)**
+tracks individual retry candidates across runs. Summary text stays neutral; only
+actual warning/failure messages are colored. Old runs without these measurements
+remain explicitly unknown, not retroactively marked successful.
+See [diagnostic fields and health thresholds](COPY-DIAGNOSTICS.md).
 
 `<configuration-basename>-diagnostics/` beside the PSD1 contains:
 

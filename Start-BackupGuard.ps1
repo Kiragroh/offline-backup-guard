@@ -12,6 +12,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'src\Setup.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'src\CopyDiagnostics.psm1') -Force
 
 # Workers are separate PowerShell processes. No background runspace touches controls.
 if ($WorkerOperation) {
@@ -89,7 +90,7 @@ $script:preflightPassed = $false; $script:busy = $null; $script:loading = $false
 $script:diskRows = @(); $script:lastStatus = $null; $script:lastActivePoll=[datetime]::MinValue
 
 $form = New-Object Windows.Forms.Form
-$form.Text = 'Offline Backup Guard 0.4.0'
+$form.Text = 'Offline Backup Guard 0.5.0'
 $form.ClientSize = New-Object Drawing.Size(1160,800)
 $form.MinimumSize = New-Object Drawing.Size(1024,720)
 $form.StartPosition = 'CenterScreen'
@@ -197,7 +198,7 @@ $configPathBox = New-Object Windows.Forms.TextBox; $configPathBox.Dock='Fill'; $
 $pathRow.Controls.Add($pathLabel,0,0); $pathRow.Controls.Add($configPathBox,1,0); $layout.Controls.Add($pathRow,0,1)
 $tabs = New-Object Windows.Forms.TabControl; $tabs.Dock='Fill'; $layout.Controls.Add($tabs,0,2)
 $pages=@{}
-foreach ($name in @('1  Disk','2  Sources','3  Schedule','4  Review','Status','Deferred files')) {
+foreach ($name in @('1  Disk','2  Sources','3  Schedule','4  Review','Status','Deferred files','Copy details')) {
     $page=New-Object Windows.Forms.TabPage; $page.Text=$name; $page.BackColor=[Drawing.Color]::White; $page.Padding=New-Object Windows.Forms.Padding(10)
     [void]$tabs.TabPages.Add($page); $pages[$name]=$page
 }
@@ -357,13 +358,14 @@ $statusHeader=New-Object Windows.Forms.TableLayoutPanel; $statusHeader.Dock='Fil
 [void]$statusHeader.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Absolute',160)))
 $statusHeader.Controls.Add($statusHeading,0,0)
 $statusHeader.Controls.Add((New-Command 'Storage history' { Show-StatusDetail 'Storage' }),1,0)
-$statusHeader.Controls.Add((New-Command 'Run source details' { Show-StatusDetail 'Sources' }),2,0)
+$statusHeader.Controls.Add((New-Command 'Run source details' { Open-CopyDetails }),2,0)
 $statusLayout.Controls.Add($statusHeader,0,0)
-$statusDetails=New-Object Windows.Forms.TextBox; $statusDetails.Multiline=$true; $statusDetails.ReadOnly=$true; $statusDetails.Dock='Fill'; $statusDetails.ScrollBars='Vertical'; $statusDetails.BackColor=[Drawing.Color]::White
+$statusDetails=New-Object Windows.Forms.RichTextBox; $statusDetails.DetectUrls=$false; $statusDetails.Multiline=$true; $statusDetails.ReadOnly=$true; $statusDetails.Dock='Fill'; $statusDetails.ScrollBars='Vertical'; $statusDetails.BackColor=[Drawing.Color]::White
 $statusLayout.Controls.Add($statusDetails,0,1)
-$storageDetails=New-Object Windows.Forms.Label; $storageDetails.Dock='Fill'; $storageDetails.Text='No capacity measurement loaded. Current disk state is unknown.'; $statusLayout.Controls.Add($storageDetails,0,2)
+$storageDetails=New-Object Windows.Forms.RichTextBox; $storageDetails.DetectUrls=$false; $storageDetails.ReadOnly=$true; $storageDetails.BorderStyle='None'; $storageDetails.BackColor=[Drawing.Color]::White; $storageDetails.Dock='Fill'; $storageDetails.Text='No capacity measurement loaded. Current disk state is unknown.'; $statusLayout.Controls.Add($storageDetails,0,2)
 $historyGrid=New-Grid $true
-foreach($column in @(@('started_at','Attempt started',170),@('status','Status',100),@('phase','Phase',145),@('offline','Confirmed offline at end',110),@('error','Recorded error',360),@('log_path','Journal log',240),@('robocopy_log_path','Robocopy log',240))) { Add-Column $historyGrid $column[0] $column[1] $column[2] }
+foreach($column in @(@('started_at','Attempt started',170),@('health','Health',100),@('status','Recorded outcome',130),@('phase','Phase',145),@('offline','Confirmed offline at end',110),@('error','Recorded error',360),@('log_path','Journal log',240),@('robocopy_log_path','Robocopy log',240))) { Add-Column $historyGrid $column[0] $column[1] $column[2] }
+$historyGrid.Add_CellDoubleClick({Open-CopyDetails})
 $statusLayout.Controls.Add($historyGrid,0,3)
 $restorePanel=New-Object Windows.Forms.TableLayoutPanel; $restorePanel.Dock='Fill'; $restorePanel.ColumnCount=2
 [void]$restorePanel.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Percent',100)))
@@ -399,6 +401,54 @@ $deferredGrid.Add_SelectionChanged({
     $deferredDetail.Text=''
     if($deferredGrid.SelectedRows.Count){$item=$deferredGrid.SelectedRows[0].Tag;if($item){$deferredDetail.Text="$($item.SourceName)`r`n$($item.RelativePath)`r`n$($item.Reason) | Windows error $($item.ErrorCode) | Runs: $($item.ConsecutiveRuns)`r`nFirst: $($item.FirstSeen) | Last: $($item.LastSeen)"}}
 })
+
+$copyLayout=New-Object Windows.Forms.TableLayoutPanel;$copyLayout.Dock='Fill';$copyLayout.RowCount=3;$copyLayout.ColumnCount=1
+[void]$copyLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Absolute',45)))
+[void]$copyLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Percent',50)))
+[void]$copyLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Percent',50)))
+$pages['Copy details'].Controls.Add($copyLayout)
+$copyRun=New-Object Windows.Forms.ComboBox;$copyRun.Dock='Fill';$copyRun.DropDownStyle='DropDownList';$copyRun.AccessibleName='Copy details run'
+$copyLayout.Controls.Add($copyRun,0,0)
+$copyGrid=New-Grid $true
+foreach($col in @(@('Source','Source',165),@('Result','Copy result',190),@('Copied','Copied',95),@('Skipped','Unchanged / excluded',140),@('Extent','Not updated / total',290))){Add-Column $copyGrid $col[0] $col[1] $col[2]}
+$copyLayout.Controls.Add($copyGrid,0,1)
+$copyText=New-Object Windows.Forms.TextBox;$copyText.Dock='Fill';$copyText.Multiline=$true;$copyText.ReadOnly=$true;$copyText.ScrollBars='Both';$copyText.WordWrap=$false
+$copyLayout.Controls.Add($copyText,0,2)
+$copyRun.Add_SelectedIndexChanged({
+    $copyGrid.Rows.Clear();$copyText.Text=''
+    if($copyRun.SelectedIndex -lt 0 -or -not $script:lastStatus){return}
+    $run=@($script:lastStatus.History)[$copyRun.SelectedIndex]
+    foreach($source in @($run.sources | Where-Object {$_})){
+        $m=$source.measurement
+        $result=if(-not $source.success){'Incomplete'}elseif($source.deferred_files -gt 0){'Completed with pending files'}else{'Completed'}
+        $i=$copyGrid.Rows.Add([string]$source.name,$result,[string]$m.Files.Copied,[string]$m.Files.Skipped,(Format-GuardCopyMeasurement $m))
+        $copyGrid.Rows[$i].Tag=$source
+    }
+    if($copyGrid.Rows.Count){$copyGrid.ClearSelection();$copyGrid.Rows[0].Selected=$true}
+})
+$copyGrid.Add_SelectionChanged({
+    $copyText.Text=''
+    if(-not $copyGrid.SelectedRows.Count){return}
+    $source=$copyGrid.SelectedRows[0].Tag
+    if(-not $source){return}
+    $d=$source.copy_details;$m=$source.measurement
+    $copyText.Text="Source: $($source.name)`r`n$(Format-GuardCopyMeasurement $m)`r`n"
+    if($source.error){$copyText.Text+="Recorded error: $($source.error)`r`n"}
+    if(-not $d){$copyText.Text+='Detailed evidence was not recorded for this run.';return}
+    $copyText.Text+="Account: $($d.Account)`r`nFrom: $($d.SourcePath)`r`nTo: $($d.DestinationPath)`r`nStage: $($d.Stage) | Robocopy exit: $($d.ExitCode) | Native error events: $($d.ErrorCount) | Truncated: $($d.Truncated)`r`n"
+    foreach($e in @($m.Errors)){
+        $cause=if($e.Code -in @(32,33)){'Sharing lock'}elseif($e.Code -eq 5){'Access denied; a sharing lock is not established'}else{"Windows error $($e.Code)"}
+        $side=if($e.Side -eq 'SourceOrDestination'){'Source or destination; not distinguished by Robocopy'}else{$e.Side}
+        $copyText.Text+="$($e.Operation): $side | $cause | Events: $($e.Events)`r`n"
+    }
+    $copyText.Text+="`r`n"+(@($d.ErrorLines) -join "`r`n")
+})
+
+function Set-WarningText($Control,[string[]]$Parts,[Drawing.Color]$Color){
+    $Control.SelectAll();$Control.SelectionColor=[Drawing.Color]::Black
+    foreach($part in $Parts){if(-not $part){continue};$pos=$Control.Text.IndexOf($part);if($pos -ge 0){$Control.Select($pos,$part.Length);$Control.SelectionColor=$Color}}
+    $Control.Select(0,0)
+}
 
 function Show-StatusDetail([string]$Kind) {
     if(-not $script:lastStatus){Show-Error 'Refresh recorded status first.';return}
@@ -476,6 +526,9 @@ function Start-Status([switch]$Passive) {
     Start-UiOperation 'Status' @{ConfigPath=$script:loadedPath;Passive=[bool]$Passive}
 }
 function Set-StatusView($Data) {
+    $selectedCopyRun=$null;$selectedCopySource=$null
+    if($script:lastStatus -and $copyRun.SelectedIndex -ge 0){$selectedCopyRun=@($script:lastStatus.History)[$copyRun.SelectedIndex].started_at}
+    if($copyGrid.SelectedRows.Count){$selectedCopySource=$copyGrid.SelectedRows[0].Tag.name}
     $s=$Data.Status; $script:lastStatus=$s
     Set-TrayHealth ([string]$s.State)
     $statusHeading.Text=[string]$s.State
@@ -494,19 +547,34 @@ function Set-StatusView($Data) {
     $offline='Unknown; no completed confirmation'
     if($latest.Count -and $null -ne $latest[0].offline){$offline="Recorded $($latest[0].offline) at $($latest[0].finished_at)"}
     $statusDetails.Text="Last attempt: $($s.LastAttempt)    Last success: $($s.LastSuccess)`r`nNext scheduled run: $($s.NextRun)    Task: $($s.TaskState)    Last task result: $($s.LastTaskResult)`r`nFailure streak: $($s.ConsecutiveFailures)    Warning streak: $($s.ConsecutiveWarnings)    Problem since: $($s.ProblemSince)    Overdue: $($s.Overdue)`r`nProblem: $($s.Problem)`r`nDrift: $(@($s.Drift) -join '; ')`r`nLast recorded offline result: $offline. Current disk state is UNKNOWN (not polled).`r`nActive phase: $($s.Active.phase)    Journal: $($s.LogRoot)"
+    $alertColor=if($s.State -in @('Failed','Interrupted','Unknown')){[Drawing.Color]::FromArgb(164,39,39)}else{[Drawing.Color]::DarkGoldenrod}
+    $parts=@();if($s.State -notin @('Succeeded','Running') -and $s.Problem){$parts+="Problem: $($s.Problem)"};if($s.Drift.Count){$parts+='Drift: '+(@($s.Drift)-join '; ')};if($s.Overdue){$parts+='Overdue: True'}
+    Set-WarningText $statusDetails $parts $alertColor
     if($s.Storage){
         $stale=if($s.Storage.stale){'STALE'}else{'Recorded sample'}
         $storageDetails.Text=('{0}: measured {1} | capacity {2:N2} GiB | used {3:N2} GiB | free {4:N2} GiB' -f $stale,$s.Storage.measured_at,($s.Storage.capacity_bytes/1GB),($s.Storage.used_bytes/1GB),($s.Storage.free_bytes/1GB)) + "`r`nLast-known measurement only; no live disk query. Retained versions also consume capacity."
-        $storageDetails.ForeColor=if($s.Storage.stale){[Drawing.Color]::FromArgb(164,39,39)}else{[Drawing.Color]::FromArgb(50,60,55)}
-    }else{$storageDetails.Text='No recorded capacity measurement. Current disk state is unknown.'}
+        Set-WarningText $storageDetails @($(if($s.Storage.stale){'STALE'})) ([Drawing.Color]::DarkGoldenrod)
+    }else{$storageDetails.Text='No recorded capacity measurement. Current disk state is unknown.';Set-WarningText $storageDetails @() ([Drawing.Color]::Black)}
     $historyGrid.Rows.Clear()
     foreach($item in @($s.History)){
         $index=$historyGrid.Rows.Add(); foreach($column in $historyGrid.Columns){$historyGrid.Rows[$index].Cells[$column.Name].Value=[string]$item.($column.Name)}
     }
+    $copyRun.Items.Clear();$selectedIndex=0
+    foreach($item in @($s.History)){
+        $health=if($item.health){$item.health}else{$item.status}
+        $i=$copyRun.Items.Add("$($item.started_at) | Health: $health | Recorded: $($item.status)")
+        if($item.started_at -eq $selectedCopyRun){$selectedIndex=$i}
+    }
+    if($copyRun.Items.Count){$copyRun.SelectedIndex=$selectedIndex}
+    foreach($row in $copyGrid.Rows){if($row.Tag.name -eq $selectedCopySource){$copyGrid.ClearSelection();$row.Selected=$true;break}}
     $restoreLabel.Text=if($Data.Restore){"Restore drill operator record: $($Data.Restore.recorded_at). Not verified by the tool; scheduled identity not accepted."}else{'Restore drill: no operator record. Perform a separate restore; recoverability is not verified.'}
 }
+function Open-CopyDetails {
+    if($historyGrid.CurrentRow -and $historyGrid.CurrentRow.Index -lt $copyRun.Items.Count){$copyRun.SelectedIndex=$historyGrid.CurrentRow.Index}
+    $tabs.SelectedTab=$pages['Copy details']
+}
 function Set-Busy([bool]$Busy) {
-    foreach($page in $tabs.TabPages){$page.Enabled=(-not $Busy -or $page.Text -eq 'Status' -or $page -eq $deferredPage)}
+    foreach($page in $tabs.TabPages){$page.Enabled=(-not $Busy -or $page.Text -in @('Status','Copy details') -or $page -eq $deferredPage)}
     $restoreButton.Enabled=-not $Busy
     foreach($item in $toolbar.Items){if($item -is [Windows.Forms.ToolStripButton]){$item.Enabled=-not $Busy}}
     $installButton.Enabled=(-not $Busy -and $script:preflightPassed -and -not $script:dirty)
@@ -679,13 +747,27 @@ if($SmokeTest){
     Set-StatusView ([pscustomobject]@{Status=$script:lastStatus;Restore=$null})
     if($statusHeading.ForeColor -ne [Drawing.Color]::DarkGoldenrod -or $deferredDetail.Text -notmatch 'measurements.csv'){throw 'Seven-run warning or full file details not rendered.'}
     if((Read-Editor).Config.DeferredWarningAfterRuns -ne 7){throw 'Deferred threshold did not round trip through the editor.'}
+    $measure=Get-GuardCopyMeasurement @('Dirs : 2 0 2 0 0 0','Files : 1000 10 989 0 1 0') @('ERROR 32 (0x00000020) Copying File C:\ExampleData\Documents\analysis\measurements.csv') $null 8
+    $history[0].sources[0].success=$true;$history[0].sources[0].error=''
+    $history[0].sources[0] | Add-Member -NotePropertyName deferred_files -NotePropertyValue 1
+    $history[0].sources[0] | Add-Member -NotePropertyName measurement -NotePropertyValue $measure
+    $history[0].sources[0] | Add-Member -NotePropertyName copy_details -NotePropertyValue ([pscustomobject]@{Account='EXAMPLE\backup-operator';SourcePath='C:\ExampleData\Documents';DestinationPath='C:\ExampleBackup\documents';Stage='Copy';ExitCode=8;ErrorCount=1;Truncated=$false;ErrorLines=@('ERROR 32 (0x00000020) Copying File C:\ExampleData\Documents\analysis\measurements.csv')})
+    Set-StatusView ([pscustomobject]@{Status=$script:lastStatus;Restore=$null})
+    $copyGrid.ClearSelection();$copyGrid.Rows[0].Selected=$true
+    if($copyGrid.Rows.Count -ne 1 -or $copyGrid.Rows[0].Cells['Extent'].Value -notmatch 'not updated' -or $copyText.Text -notmatch 'EXAMPLE\\backup-operator' -or $copyText.Text -notmatch 'measurements.csv'){throw 'Measured extent or native copy details not visible.'}
+    $statusDetails.Select(0,12)
+    if($statusDetails.SelectionColor -ne [Drawing.Color]::Black){throw 'Neutral status metadata was tinted.'}
+    $warningIndex=$statusDetails.Text.IndexOf('Problem:')
+    $statusDetails.Select($warningIndex,8)
+    if($statusDetails.SelectionColor -ne [Drawing.Color]::DarkGoldenrod){throw 'Warning message was not selectively highlighted.'}
+    $statusDetails.Select(0,0)
     $outputBox.Text='SYNTHETIC SMOKE DATA. No disk enumeration, mount, runner invocation, task change or configuration write.'
     $activity.Text='Smoke test: rendered controls with synthetic data only.'
     if(-not $ScreenshotPath){$ScreenshotPath=Join-Path ([IO.Path]::GetTempPath()) ('backup-guard-smoke-'+[guid]::NewGuid().ToString('N')+'.png')}
     $ScreenshotPath=[IO.Path]::GetFullPath($ScreenshotPath)
     if(-not (Test-Path -LiteralPath (Split-Path $ScreenshotPath -Parent) -PathType Container)){throw 'Screenshot parent directory must already exist.'}
     $form.Show(); [Windows.Forms.Application]::DoEvents()
-    foreach($index in @(0,1,2,3,4,5)){
+    foreach($index in @(0,1,2,3,4,5,6)){
         $tabs.SelectedIndex=$index; $form.Refresh(); [Windows.Forms.Application]::DoEvents()
         $bitmap=New-Object Drawing.Bitmap($form.Width,$form.Height)
         try{

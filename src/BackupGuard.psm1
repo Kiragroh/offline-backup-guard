@@ -1,6 +1,7 @@
 ﻿$ErrorActionPreference = "Stop"
 
 Import-Module (Join-Path $PSScriptRoot 'DeferredFiles.psm1')
+Import-Module (Join-Path $PSScriptRoot 'CopyDiagnostics.psm1')
 
 function Test-BackupCanary {
     [CmdletBinding()]
@@ -1198,11 +1199,15 @@ function Invoke-RobocopyChecked {
         $excluded = @($PreviewSummary.LockedPaths)
         if ($excluded.Count) { $Arguments = $Arguments + @('/XF') + $excluded }
     }
-    # Stream verbose output rather than retaining a potentially multi-million-file listing.
+    $summaryLines=[System.Collections.Generic.List[string]]::new()
+    $Arguments=@($Arguments | Where-Object {$_ -notmatch '(?i)^/(NJS|NDL)$'}) + @('/BYTES','/FP')
+    # Retain summary and error evidence, not the potentially huge file listing.
     & robocopy.exe @Arguments /R:0 /W:0 /TEE | ForEach-Object {
         if ($_ -match '(?i)\b(?:ERROR|FEHLER)\s+\d+\s+\(0x[0-9a-f]+\)') { $errors.Add([string]$_) }
+        if ($_ -match '^\s*(Files|Dateien|Dirs|Verzeich\.|Bytes)\s*:') { $summaryLines.Add([string]$_) }
     }
     $exitCode = $LASTEXITCODE
+    Set-GuardCopyDiagnostics $DeferredContext $summaryLines.ToArray() $errors.ToArray() $exitCode
     $actualExitCode = $exitCode
     $locked = 0
     if (-not (Test-RobocopyExitCode -ExitCode $exitCode)) {
@@ -1223,7 +1228,7 @@ function Invoke-RobocopyChecked {
     }
 
     if ($PassThruResult) {
-        return [pscustomobject]@{ ExitCode=$actualExitCode; NormalizedExitCode=$exitCode; LockedAtCopy=$lockedAtCopy; LockedAtPreflight=$lockedAtPreflight }
+        return [pscustomobject]@{ ExitCode=$actualExitCode; NormalizedExitCode=$exitCode; LockedAtCopy=$lockedAtCopy; LockedAtPreflight=$lockedAtPreflight; Measurement=$(if($DeferredContext){$DeferredContext.Measurement}else{Get-GuardCopyMeasurement $summaryLines.ToArray() $errors.ToArray() $null $actualExitCode}) }
     }
     return $exitCode
 }
@@ -1271,8 +1276,10 @@ function Invoke-RobocopyPreview {
             if(-not $codes.Count){
                 $diagnosticArgs=@($previewArgs | Where-Object {$_ -notmatch '(?i)^/MT(?::\d+)?$'})
                 $diagnostic=@(& robocopy.exe @diagnosticArgs /R:0 /W:0)
+                $errors=@($diagnostic | Where-Object {$_ -match '(?i)\b(?:ERROR|FEHLER)\s+\d+\s+\(0x[0-9a-f]+\)'})
                 $codes=@($diagnostic | ForEach-Object {if($_ -match '(?i)\b(?:ERROR|FEHLER)\s+(\d+)\s+\(0x') {[int]$Matches[1]}} | Sort-Object -Unique)
             }
+            Set-GuardCopyDiagnostics $DeferredContext @() $errors $exitCode Preview
             throw "Robocopy preview failed with exit code $exitCode. NativeErrorCodes=$($codes -join ',')."
         }
     }

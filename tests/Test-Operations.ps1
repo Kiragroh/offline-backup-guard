@@ -14,7 +14,7 @@ try {
     $status=Get-GuardStatus $path -Now $now -TaskSnapshot $task
     Check ($status.State -eq 'Missed' -and $status.Overdue) 'No journal cannot look healthy after expected schedule'
     $run=New-GuardRun $path
-    $run.started_at='2026-01-01T02:30:00';$run.success=$true
+    $run.started_at='2026-01-01T02:30:00';$run.success=$true;$run.offline=$true
     Complete-GuardRun $run
     $saved=Read-GuardJson (Join-Path $run.diagnostics_root "runs\$($run.id).json")
     $saved.finished_at='2026-01-01T03:00:00'

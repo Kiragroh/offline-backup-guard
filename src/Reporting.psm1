@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'CopyDiagnostics.psm1')
 
 function Write-AtomicReport {
     param([string]$Path, [string]$Content)
@@ -40,10 +41,11 @@ function Publish-BackupReport {
     $day = ([DateTimeOffset]::Parse($Run.finished_at)).ToString('yyyy-MM-dd')
     Write-AtomicReport -Path (Join-Path $ReportRoot "daily\$day.json") -Content $payload
     $latestStorage = $history | Select-Object -Last 1
-    $status = if (-not $Run.success) { 'FAILED - operator review required' } elseif ($Run.warnings -gt 0) { 'COMPLETED WITH WARNINGS - review skipped files and capacity' } else { 'Completed (restore testing remains necessary)' }
-    $lines = @('# Offline Backup Guard - daily report', '', "Finished: $($Run.finished_at)", "Status: $status", "Disk confirmed offline: $($Run.offline)", '')
+    $status = if ($Run.health) { $Run.health } elseif (-not $Run.success) { 'Failed' } elseif ($Run.warnings -gt 0) { 'Warning' } else { 'Succeeded' }
+    $lines = @('# Offline Backup Guard - daily report', '', "Finished: $($Run.finished_at)", "Health: $status", "Recorded job outcome: $($Run.status); success=$($Run.success)", "Disk confirmed offline: $($Run.offline)", '')
     if ($Run.started_at) { $lines += "Started: $($Run.started_at)" }
     if ($Run.error) { $lines += ('Reason: ' + ([string]$Run.error).Replace("`r",' ').Replace("`n",' ')) }
+    if ($Run.health_reason -and $Run.health_reason -ne $Run.error) { $lines += ('Health reason: ' + ([string]$Run.health_reason).Replace("`r",' ').Replace("`n",' ')) }
     if ($Run.log_path) { $lines += "Runner log: $($Run.log_path)" }
     if ($Run.robocopy_log_path) { $lines += "Robocopy log: $($Run.robocopy_log_path)" }
     if ($Run.event_path) { $lines += "Structured events: $($Run.event_path)" }
@@ -53,10 +55,11 @@ function Publish-BackupReport {
         $age = ([DateTimeOffset]::Parse($Run.finished_at) - [DateTimeOffset]::Parse($latestStorage.measured_at)).TotalHours
         $lines += "Storage sample stale (over 36 hours): $($age -gt 36)"
     } else { $lines += 'Storage: not measured. No estimate available.' }
-    $lines += @('', '| Source | Completed | Previous files retained | Deferred files | Repeated deferrals needing review | Expired recovery files deleted |', '| --- | --- | ---: | ---: | ---: | ---: |')
+    $lines += @('', '| Source | Completed | Copied | Not updated / total | Previous files retained | Deferred files | Repeated deferrals needing review | Expired recovery files deleted |', '| --- | --- | ---: | --- | ---: | ---: | ---: | ---: |')
     foreach ($source in $Run.sources) {
         $label = ([string]$source.name).Replace('|','/').Replace("`n",' ').Replace("`r",' ')
-        $lines += "| $label | $($source.success) | $($source.archived_files) | $($source.deferred_files) | $($source.deferred_overdue) | $($source.retention_deleted_files) |"
+        $extent=Format-GuardCopyMeasurement $source.measurement
+        $lines += "| $label | $($source.success) | $($source.measurement.Files.Copied) | $extent | $($source.archived_files) | $($source.deferred_files) | $($source.deferred_overdue) | $($source.retention_deleted_files) |"
     }
     $lines += @('', 'Unknown counters are blank. Robocopy diagnostics remain in private local logs.', 'A successful copy is not proof of application-consistent recovery.', 'No refresh or mount is performed when reading this report.', '')
     Write-AtomicReport -Path (Join-Path $ReportRoot 'latest.md') -Content ($lines -join "`n")

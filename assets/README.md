@@ -21,3 +21,6 @@ They contain no production observations.
 
 `gui-deferred.png` was rendered on 2026-10-13 by the same synthetic smoke mode
 for version 0.4.0. The filename, source and seven-run history are fictional.
+
+`gui-copy-details.png` was rendered on 2026-10-30 by synthetic smoke mode for
+version 0.5.0. Its 1-of-1,000 pending files and example account/paths are fictional.

@@ -9,13 +9,17 @@ function New-GuardDeferredContext {
 function Add-GuardDeferredFile {
     param([hashtable]$Context,[string]$Path,[int]$ErrorCode,[string]$Stage)
     if(-not $Context -or $ErrorCode -notin @(2,3,5,32,33)){throw 'File error is not eligible for deferral.'}
-    $full=[IO.Path]::GetFullPath($Path.Trim().Trim('"'));$relative=$null
+    # .NET Framework maps a final reserved name (for example nul) to a device.
+    # Check the literal child path without resolving or opening that device.
+    $full=$Path.Trim().Trim('"').Replace('/','\');$relative=$null
     foreach($root in @($Context.SourcePath,$Context.DestinationPath)){
         $prefix=[IO.Path]::GetFullPath($root).TrimEnd('\')+'\'
         if($full.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){$relative=$full.Substring($prefix.Length);break}
     }
     if([string]::IsNullOrWhiteSpace($relative) -or $relative.EndsWith('\')){throw 'Deferred file must be below the exact source or destination root.'}
+    if(@($relative -split '\\' | Where-Object {$_ -in @('','.','..') -or $_ -match '[:*?"<>|\x00-\x1f]'}).Count){throw 'Deferred path contains unsafe segments.'}
     $reason=switch($ErrorCode){2 {'File disappeared during the run'} 3 {'File path disappeared during the run'} 5 {'File access denied'} default {'File is locked by another process'}}
+    if(@($relative -split '\\' | Where-Object {$_ -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)'}).Count){$reason='Reserved Windows filename; not a temporary sharing lock'}
     $Context.Items[$relative.ToLowerInvariant()]=@{RelativePath=$relative;ErrorCode=$ErrorCode;Reason=$reason;Stage=$Stage}
 }
 

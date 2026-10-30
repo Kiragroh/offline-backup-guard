@@ -132,12 +132,15 @@ try {
                     Write-GuardEvent $run 'Retention deferred' 'Recovery copies retained because this source has deferred files.' 'Information' $source.Name
                 }
                 $run.sources += [ordered]@{ name=$source.Name; success=$true; robocopy_exit=$exitCode; deferred_files=$pending.Count; deferred_overdue=$pending.OverdueCount; archived_files=$archived; locked_at_preflight=$locks; locked_at_copy=$copyResult.LockedAtCopy; retention_deleted_files=$expired.RemovedFiles; retention_deleted_bytes=$expired.RemovedBytes; previous_versions=$source.PreviousVersions }
+                $run.sources[-1].measurement=$deferredContext.Measurement
+                $run.sources[-1].copy_details=$deferredContext.Diagnostics
             } catch {
                 $sourceError=$_.Exception.Message
                 if($deferredContext){Save-GuardDeferredComponent $deferredContext $false | Out-Null}
                 Write-BackupAirLog -Path $log -Message $sourceError
                 Write-GuardEvent $run $run.phase $sourceError 'Error' $source.Name
                 $run.sources += [ordered]@{ name=$source.Name; success=$false; phase=$run.phase; error=$sourceError }
+                if($deferredContext){$run.sources[-1].measurement=$deferredContext.Measurement;$run.sources[-1].copy_details=$deferredContext.Diagnostics}
             }
         }
         $run.success = @($run.sources | Where-Object { -not $_.success }).Count -eq 0
@@ -168,7 +171,7 @@ try {
     if ($run.success -and $run.offline) { $exitStatus=0 }
     }
 } catch {
-    $run.success=$false; $exitStatus=1
+    $run.success=$false; $run.fatal_failure=$true; $exitStatus=1
     $run.error=(@($run.error,$_.Exception.Message) | Where-Object {$_} | Select-Object -Unique) -join '; '
     Write-GuardEvent $run $run.phase $run.error 'Error'
     Write-Warning $run.error
@@ -180,6 +183,7 @@ try {
     } catch {
         $exitStatus=1
         $run.success=$false
+        $run.fatal_failure=$true
         $run.error="Report persistence failed: $($_.Exception.Message). $($run.error)"
         Write-Warning "$($run.error) Inspect console and journal: $($run.event_path)"
         try { Complete-GuardRun $run } catch { Write-Warning 'The fallback journal is also unavailable.' }

@@ -4,6 +4,11 @@
 
 **A Windows desktop application for scheduled backups to a dedicated USB disk, with a setup wizard, a system tray icon and a backup health dashboard.**
 
+**Add an offline protection layer to your backup strategy.** The disk is brought
+online for the scheduled backup and taken offline afterwards, reducing its exposure
+to everyday file access and ransomware. Keep a current copy plus previous versions,
+and see what was saved, what needs another attempt, and how much space remains.
+
 Install the app, open it from your desktop or Start menu, and configure your
 backup in the graphical interface. **No terminal commands are needed for the
 normal installation and setup workflow.** PowerShell and Robocopy work behind
@@ -12,8 +17,7 @@ the scenes; the command-line tools remain available for administrators.
 ## Quick start: Windows app
 
 1. Open [Releases](https://github.com/Kiragroh/offline-backup-guard/releases/latest)
-   and download **`Setup.exe`** from the release assets (desktop installer: v0.3.0
-   and later), not GitHub's **Source code** ZIP.
+   and download **`Setup.exe`** from the release assets, not GitHub's **Source code** ZIP.
 2. Double-click **`Setup.exe`** as your normal Windows user. Choose whether the
    tray app should start when you sign in. Installation adds desktop and Start
    menu shortcuts; it does not start a backup or register a backup job.
@@ -41,16 +45,17 @@ Do not bypass security controls.
 [Desktop guide](docs/DESKTOP.md) | [Release notes](CHANGELOG.md) |
 [Administrator guide](docs/OPERATIONS.md)
 
-## Before using real data
+## How the protection works
 
-This is a reusable reference implementation, not a managed backup product. All
-examples are fictional. There are no organization-specific integrations, network
-maps, production configurations, credentials, or operational records in this repository.
+1. **Check:** validate the permitted start window, disk identity and pinned canaries.
+2. **Connect:** bring the dedicated backup disk online only for the backup run.
+3. **Preserve and copy:** retain previous files, then copy changes with Robocopy.
+   Individual recognized file-access problems are recorded for the next run.
+4. **Disconnect and report:** attempt to take the disk offline even after errors;
+   save local reports that remain readable all day without mounting it.
 
-> **Software-offline is not a physical air gap.** An administrator or privileged
-> malware can bring an attached disk online. A canary is only a change signal,
-> not a ransomware detector. Keep independent offline or immutable backups and
-> test restores. Do not make this your only recovery path.
+All repository examples are fictional. No organization-specific network maps,
+production configurations, credentials or operational records are included.
 
 ## What it does
 
@@ -61,8 +66,8 @@ maps, production configurations, credentials, or operational records in this rep
 - Retains previous destination files before planned replacement or deletion.
 - Defers recognized individual unavailable/locked files and retries next run.
 - Shows pending files separately; warns after seven consecutive affected runs.
-- Keeps directory, canary, disk-full, corruption and unknown errors fatal, and
-  enforces optional deletion-count limits.
+- Records actual copy counts, pending percentages and concrete native diagnostics.
+- Keeps serious or unknown failures visible and enforces optional deletion-count limits.
 - Attempts to offline the disk in `finally`, including failed copy runs.
 - Writes local JSON/Markdown reports with capacity, remaining space, timestamps,
   per-source results and retained-file counts; at most one storage point per day.
@@ -105,6 +110,22 @@ folder, directory access failure, failed canary, full/corrupt disk or interrupte
 job is not treated as a harmless deferral. Green with pending files means the job
 completed with listed omissions, **not that every file is current**. Recovery-file
 pruning is postponed for affected sources. Historical failed runs stay failed.
+
+### Know whether one file or half a source is missing
+
+The **Copy details** tab shows each run's sources, files actually copied,
+unchanged/excluded files, and **not updated / total (%)** where a complete copy
+inventory is available. Select a source to see its execution account, endpoints,
+operation, Windows error code and native error lines. Access denied is not
+automatically called a temporary lock. Missing evidence is shown as unknown.
+
+Small recognized deferrals can stay green with a prominent pending-file count.
+Persistent files warn from the seventh affected run. Measured localized copy
+failures can be yellow; widespread failures and disk-integrity/offline failures
+remain red. Raw job outcomes and exit codes are preserved.
+See [copy diagnostics and exact health rules](docs/COPY-DIAGNOSTICS.md).
+
+![Copy details with a synthetic 0.1 percent pending-file example](assets/gui-copy-details.png)
 
 ## Command-line setup (administrators)
 
@@ -194,10 +215,18 @@ Deleted-file protection, ambiguous timestamps or unsafe metadata may retain more
 than the selected count. Retention warnings are visible and never silently ignored.
 See [retention and recovery details](docs/OPERATIONS.md#retention-and-space).
 
-Counts are conservative: this release reports retained/expired recovery files and
-locks found at preflight or during copying. It does **not** label Robocopy preview
-counts as actual files copied or deleted. Detailed diagnostics remain in private logs. No dashboard is required;
+Counts come from the actual Robocopy run and recovery-file operations. Preview
+counts are **not** presented as actual files copied or deleted. Unknown counters
+stay unknown. Detailed diagnostics remain in private logs. No dashboard is required;
 other monitoring tools can ingest the JSON without access to the backup contents.
+
+## Protection boundary
+
+Taking a disk offline provides useful additional protection, but an attached disk
+can be brought online by an administrator or privileged malware. A canary detects
+changes to that canary, not every ransomware attack. Combine this layer with an
+independent offline or immutable copy and tested restores. This is a self-managed
+application, not a managed backup service.
 
 ## Why this can help radiotherapy BCM
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 - 2026-10-30
+
+- Add an offline-readable **Copy details** tab with actual copied/skipped counts,
+  pending proportions, execution identity, endpoints and bounded native errors.
+- Preserve partial copy evidence before exceptions; missing inventory stays unknown.
+- Distinguish measured localized problems from widespread or safety-critical
+  failures without rewriting raw outcomes, exit codes or historical records.
+- Handle reserved filenames such as `nul` as literal deferred paths; reject unsafe
+  traversal and alternate-stream paths. Access denied is not mislabeled as a lock.
+- Color warning text selectively and include measured extent in daily reports.
+- Explain the protection workflow and ordinary Windows-app setup first; retain
+  concise protection boundaries and generic, organization-independent examples.
+- Add synthetic measurement/health regression tests and real temporary lock/catch-up
+  checks. No change to production backup jobs or existing private configuration.
+
 ## 0.4.0 - 2026-10-13
 
 - Added a counted Deferred files tab and tray entry, with full file details,

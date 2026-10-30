@@ -32,7 +32,7 @@ function New-GuardRun {
     $id = (Get-Date -Format 'yyyy-MM-dd_HHmmss_fff') + '_' + [guid]::NewGuid().ToString('N').Substring(0,8)
     New-Item -ItemType Directory -Path (Join-Path $root 'runs') -Force | Out-Null
     [ordered]@{
-        schema_version=2; tool_version='0.4.0'; id=$id; kind=$Kind; started_at=(Get-Date).ToString('o'); finished_at=$null
+        schema_version=2; tool_version='0.5.0'; id=$id; kind=$Kind; started_at=(Get-Date).ToString('o'); finished_at=$null
         status='Running'; phase='Initialization'; success=$false; warnings=0; warning_messages=@(); offline=$null
         storage=$null; sources=@(); error=$null; pid=$PID; host_name=$env:COMPUTERNAME
         process_started_at=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')
@@ -59,12 +59,44 @@ function Complete-GuardRun {
     param([System.Collections.IDictionary]$Run)
     $Run.finished_at=(Get-Date).ToString('o')
     $Run.status=if (-not $Run.success) { 'Failed' } elseif ($Run.warnings -gt 0) { 'Warning' } else { 'Succeeded' }
+    # Display severity never rewrites the raw success value or process exit code.
+    $Run.health=Get-GuardRunHealth $Run
+    $Run.health_reason=$Run.error
+    if($Run.health -eq 'Failed' -and -not $Run.health_reason){
+        if($Run.offline -ne $true){$Run.health_reason='Backup disk offline state was not confirmed.'}
+        else{
+            $affected=@($Run.sources | Where-Object {$_.measurement.InventoryComplete -and $_.measurement.NotUpdatedPercent -ge 50})
+            $Run.health_reason=if($affected.Count){($affected | ForEach-Object {"$($_.name): $($_.measurement.NotUpdated) of $($_.measurement.Files.Total) enumerated files not updated ($($_.measurement.NotUpdatedPercent)%)."}) -join ' '}else{'Critical disk or runner failure; inspect Copy details and the run journal.'}
+        }
+    }
     if (-not $Run.success -and $Run.failure_phase) { $Run.phase=$Run.failure_phase }
     Write-GuardEvent $Run $Run.phase "Run finished: $($Run.status)" $(if($Run.success){'Information'}else{'Error'})
     $active=Join-Path $Run.diagnostics_root 'active.json'
     if (Test-Path -LiteralPath $active) {
         if ((Read-GuardJson $active).id -eq $Run.id) { Remove-Item -LiteralPath $active }
     }
+}
+
+function Get-GuardRunHealth {
+    param($Run)
+    if($Run.kind -ne 'backup'){return $Run.status}
+    if($Run.offline -ne $true -or $Run.fatal_failure){return 'Failed'}
+    $sources=@($Run.sources)
+    $critical=@(23,39,112,1117,1392,1393)
+    foreach($source in $sources){
+        $m=$source.measurement
+        if(@($m.Errors | Where-Object {$_.Code -in $critical}).Count){return 'Failed'}
+        if($m -and $m.InventoryComplete -and $null -ne $m.NotUpdatedPercent -and $m.NotUpdatedPercent -ge 50){return 'Failed'}
+    }
+    if($Run.success){return $(if($Run.warnings -gt 0){'Warning'}else{'Succeeded'})}
+    $failed=@($sources | Where-Object {-not $_.success})
+    if(-not $failed.Count -or $failed.Count * 2 -ge $sources.Count){return 'Failed'}
+    foreach($source in $failed){
+        $m=$source.measurement
+        if($source.phase -ne 'Copy' -or -not $m -or -not $m.InventoryComplete -or $null -eq $m.NotUpdatedPercent -or $m.NotUpdatedPercent -ge 50){return 'Failed'}
+    }
+    if($Run.failure_phase -ne 'Copy'){return 'Failed'}
+    return 'Warning'
 }
 
 function Get-GuardTaskArguments {
@@ -144,7 +176,10 @@ function Get-GuardStatus {
     if ($null -eq $TaskSnapshot -and $config) { $TaskSnapshot=Get-GuardTaskSnapshot $config $ConfigPath }
     if ($null -eq $TaskSnapshot) { $TaskSnapshot=[pscustomobject]@{Exists=$false;State='Unknown';Drift=@('Configuration unavailable');NextRun=$null;LastResult=$null} }
     $state=if ($last) { $last.status } else { 'Never run' }
+    if($last -and $last.finished_at -and $last.health -in @('Succeeded','Warning','Failed')){$state=$last.health}
     $problem=if ($last) { $last.error } else { 'No backup attempts recorded' }
+    if($last -and $last.health_reason){$problem=$last.health_reason}
+    if($last -and $last.health -ne 'Succeeded' -and $last.health -and -not $since){$since=$last.started_at}
     if ($last -and $last.status -eq 'Warning' -and -not $problem) { $problem=@($last.warning_messages) -join '; ' }
     $overdue=$false
     if ($config -and $config.ScheduleTime -match '^\d{2}:\d{2}$') {
@@ -187,4 +222,4 @@ function Get-GuardStatus {
     }
 }
 
-Export-ModuleMember -Function Get-GuardStatus,Get-GuardTaskArguments,Get-GuardTaskSnapshot,Get-GuardDiagnosticsPath,New-GuardRun,Write-GuardEvent,Complete-GuardRun,Read-GuardJson,Write-GuardJson
+Export-ModuleMember -Function Get-GuardStatus,Get-GuardRunHealth,Get-GuardTaskArguments,Get-GuardTaskSnapshot,Get-GuardDiagnosticsPath,New-GuardRun,Write-GuardEvent,Complete-GuardRun,Read-GuardJson,Write-GuardJson
